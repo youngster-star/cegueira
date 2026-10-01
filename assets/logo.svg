@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" role="img" aria-label="Cegueira Logo">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="75%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0b1220"/>
+    </radialGradient>
+    <linearGradient id="iris" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7dd3fc"/>
+      <stop offset="100%" stop-color="#0ea5e9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 徽章底 -->
+  <circle cx="80" cy="80" r="78" fill="url(#bg)"/>
+  <circle cx="80" cy="80" r="78" fill="none" stroke="#38bdf8" stroke-opacity="0.25" stroke-width="2"/>
+
+  <!-- 光芒（复明 Lucidez）-->
+  <g stroke="#7dd3fc" stroke-opacity="0.55" stroke-width="2.5" stroke-linecap="round">
+    <line x1="80" y1="12" x2="80" y2="24"/>
+    <line x1="80" y1="136" x2="80" y2="148"/>
+    <line x1="12" y1="80" x2="24" y2="80"/>
+    <line x1="136" y1="80" x2="148" y2="80"/>
+    <line x1="32" y1="32" x2="40" y2="40"/>
+    <line x1="120" y1="120" x2="128" y2="128"/>
+    <line x1="32" y1="128" x2="40" y2="120"/>
+    <line x1="128" y1="32" x2="120" y2="40"/>
+  </g>
+
+  <!-- 眼睛轮廓（睁开）-->
+  <path d="M 30 80 C 46 54, 114 54, 130 80 C 114 106, 46 106, 30 80 Z"
+        fill="none" stroke="#e2e8f0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 虹膜 -->
+  <circle cx="80" cy="80" r="19" fill="url(#iris)"/>
+  <!-- 瞳孔 -->
+  <circle cx="80" cy="80" r="9" fill="#0b1220"/>
+  <!-- 高光 -->
+  <circle cx="87" cy="73" r="4" fill="#ffffff" fill-opacity="0.9"/>
+</svg>
