@@ -1,3 +1,3 @@
-export * from "./ipc";
-export * from "./errors";
-export * from "./schema";
+export * from "./ipc.js";
+export * from "./errors.js";
+export * from "./schema.js";
