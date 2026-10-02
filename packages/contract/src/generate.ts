@@ -2,7 +2,6 @@
  * 契约生成器：方向 + 技能自评 → 五件套（PRD §6.1）。
  * P1 使用内置模板生成（针对 RAG 问答 Agent）；LLM 生成接口留占位，后续接入。
  */
-import { randomUUID } from "node:crypto";
 import {
   CONTRACT_SCHEMA,
   SECURITY_ASSERTIONS,
@@ -20,7 +19,8 @@ export interface GenerationInput {
 }
 
 /** 内置模板：RAG 问答 Agent 的契约五件套。 */
-export function generateBundle(input: GenerationInput, projectId = randomUUID()): ContractBundle {
+export function generateBundle(input: GenerationInput, projectId?: string): ContractBundle {
+  const id = projectId ?? crypto.randomUUID();
   const title = input.direction.trim() || "RAG 问答 Agent";
 
   const projectMd: ProjectMd = {
@@ -33,7 +33,7 @@ export function generateBundle(input: GenerationInput, projectId = randomUUID())
 
   const contract: Contract = {
     schema: CONTRACT_SCHEMA,
-    project_id: projectId,
+    project_id: id,
     title,
     stages: [
       {
