@@ -186,6 +186,16 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/antich:
+    dependencies:
+      '@cegueira/trace':
+        specifier: workspace:*
+        version: link:../trace
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   packages/contract:
     devDependencies:
       typescript:
@@ -205,12 +215,22 @@ importers:
         version: 5.9.3
 
   packages/scorer:
+    dependencies:
+      '@cegueira/trace':
+        specifier: workspace:*
+        version: link:../trace
     devDependencies:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
 
   packages/shared:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/trace:
     devDependencies:
       typescript:
         specifier: ^5.6.3

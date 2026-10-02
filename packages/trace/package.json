@@ -1,5 +1,5 @@
 {
-  "name": "@cegueira/scorer",
+  "name": "@cegueira/trace",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,9 +8,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test \"dist/*.test.js\""
-  },
-  "dependencies": {
-    "@cegueira/trace": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3"
