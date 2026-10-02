@@ -1,0 +1,20 @@
+{
+  "name": "@cegueira/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ceg": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test \"dist/*.test.js\""
+  },
+  "dependencies": {
+    "@cegueira/contract": "workspace:*",
+    "@cegueira/scorer": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

@@ -40,6 +40,9 @@ logs/
 *.sqlite3
 recordings/
 
+# === CLI 运行产物 ===
+cegueira-contract/
+
 # === 系统 ===
 .DS_Store
 Thumbs.db
