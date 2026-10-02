@@ -9,6 +9,9 @@
     "build": "tsc -p tsconfig.json",
     "test": "node --test \"dist/*.test.js\""
   },
+  "dependencies": {
+    "@cegueira/rag": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.6.3"
   }
