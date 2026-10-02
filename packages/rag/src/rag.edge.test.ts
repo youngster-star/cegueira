@@ -23,6 +23,18 @@ test("scoreEntry：空白 tag 视为无效", () => {
   assert.equal(scoreEntry("rag", "无关文本", ["   "]), 0);
 });
 
+test("scoreEntry：短查询命中长 tag（反向包含，回归）", () => {
+  // 单字「多」无法命中长 tag「多agent」→ 修复后反向包含可命中
+  assert.equal(scoreEntry("多", "多 Agent 协作", ["多agent"]), 2);
+  // 短英文「rag」命中长 tag「rag-qa」
+  assert.equal(scoreEntry("rag", "……", ["rag-qa"]), 2);
+});
+
+test("scoreEntry：空查询不得命中任何 tag（回归）", () => {
+  assert.equal(scoreEntry("", "任意文本", ["rag", "工具"]), 0);
+  assert.equal(scoreEntry("   ", "任意文本", ["rag"]), 0);
+});
+
 test("retrieve：空 tag 条目不会被无关查询命中（回归）", () => {
   const kb = new KnowledgeBase();
   kb.add([{ id: "x", text: "无关文本", source: "s", tags: [""], kind: "hint" }]);

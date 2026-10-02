@@ -22,6 +22,15 @@ test("setLevel：error 级别仅保留 error", () => {
   assert.deepEqual(log.entries().map((e) => e.level), ["error"]);
 });
 
+test("setLevel：非法级别抛错（回归，防止过滤失效）", () => {
+  const log = createLogger("error");
+  assert.throws(() => log.setLevel("bogus" as "info"), /非法日志级别/);
+  // 抛错后当前级别保持不变，仍只记录 error
+  log.warn("w");
+  log.error("e");
+  assert.deepEqual(log.entries().map((e) => e.level), ["error"]);
+});
+
 test("entries 返回副本：修改返回值不影响内部", () => {
   const log = createLogger("debug");
   log.info("a");

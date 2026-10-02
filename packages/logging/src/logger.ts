@@ -19,6 +19,10 @@ export function createLogger(minLevel: LogLevel = "info"): Logger {
     error: (m, meta) => log("error", m, meta),
     entries: () => [...entries],
     setLevel(level) {
+      // 非法级别会使 indexOf 返回 -1，导致过滤条件恒 false、所有级别泄漏，必须 fail-fast
+      if (!LEVEL_ORDER.includes(level)) {
+        throw new RangeError(`非法日志级别: ${level}（可选 ${LEVEL_ORDER.join("/")}）`);
+      }
       currentLevel = level;
     },
   };

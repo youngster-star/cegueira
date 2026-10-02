@@ -47,7 +47,10 @@ export function scoreEntry(query: string, text: string, tags: string[]): number 
   for (const tag of tags) {
     const tagNorm = tag.trim().toLowerCase();
     // 空 tag（''）会让 includes 恒 true，必须跳过，否则任何查询都命中该条目
-    if (tagNorm && q.includes(tagNorm)) score += 2;
+    if (!tagNorm) continue;
+    // 双向子串匹配：query 含 tag，或 tag 含 query。
+    // 反向包含解决短查询/单字（如「多」）无法命中长 tag（「多agent」）的召回缺陷。
+    if (q && (q.includes(tagNorm) || tagNorm.includes(q))) score += 2;
   }
   for (const tok of tokenize(q)) {
     if (tok.length >= 2 && t.includes(tok)) score += 1;
