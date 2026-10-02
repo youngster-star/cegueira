@@ -11,9 +11,13 @@ dist/
 build/
 *.tsbuildinfo
 .pnpm-store/
+*.timestamp-*.mjs
 
 # === Rust ===
 target/
+
+# === Tauri 自动生成 ===
+apps/desktop/src-tauri/gen/
 
 # === Python ===
 __pycache__/

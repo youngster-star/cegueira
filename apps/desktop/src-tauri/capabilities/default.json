@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Cegueira 桌面端默认能力（最小 GUI 阶段仅需核心窗口能力）",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

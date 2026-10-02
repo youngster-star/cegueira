@@ -3,3 +3,8 @@ packages:
   - "packages/*"
 
 nodeLinker: hoisted
+
+# esbuild 二进制已通过 optionalDependencies（@esbuild/win32-x64）安装，
+# 其 postinstall 仅做版本验证且 Windows 下 spawnSync 会 EBUSY，故显式禁用
+allowBuilds:
+  esbuild: false
