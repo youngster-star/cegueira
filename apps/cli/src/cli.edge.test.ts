@@ -31,12 +31,21 @@ test("parseArgs：裸参数（非 -- 开头）被忽略", () => {
   assert.equal(a.options.direction, "RAG");
 });
 
-test("parseArgs：--key=value 形式不拆解（当前按字面 key 存储）", () => {
-  // 记录当前行为：实现只支持 --key value，不支持 = 形式
+test("parseArgs：--key=value 形式正确拆解", () => {
   const a = parseArgs(["init", "--direction=RAG"]);
-  assert.equal(a.options["direction=RAG"], undefined); // 未拆解为 direction
-  // 但值会被当成下一个 option 的 value 前，先确认不抛错
+  assert.equal(a.options.direction, "RAG");
   assert.equal(a.command, "init");
+});
+
+test("parseArgs：--key= 空值形式正确解析", () => {
+  const a = parseArgs(["init", "--direction="]);
+  assert.equal(a.options.direction, "");
+});
+
+test("parseArgs：--=x 空 key 被忽略", () => {
+  const a = parseArgs(["init", "--=x"]);
+  assert.equal(a.command, "init");
+  assert.equal(Object.keys(a.options).length, 0);
 });
 
 test("doctorCommand：venv 不存在时标记 ✗", () => {

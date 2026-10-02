@@ -30,9 +30,14 @@ export function sOutcome(samples: number[]): number {
   return Math.min(...samples);
 }
 
-/** S_rubric：k 次评审取中位数（PRD §4.5「跨家族评审，取中位数」）。 */
+/** S_rubric：k 次评审取中位数（PRD §4.5「跨家族评审，取中位数」）。样本须在 [0,1]，与 sOutcome 一致（严格校验，越界抛错）。 */
 export function sRubric(samples: number[]): number {
   if (samples.length === 0) return 0.5; // 未接 LLM 的占位
+  for (const s of samples) {
+    if (!Number.isFinite(s) || s < 0 || s > 1) {
+      throw new RangeError(`rubric 样本超出 [0,1]: ${s}`);
+    }
+  }
   const sorted = [...samples].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 1

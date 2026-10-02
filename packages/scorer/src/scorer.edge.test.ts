@@ -43,6 +43,13 @@ test("sRubric：三样本取中位数", () => {
   assert.equal(sRubric([0.1, 0.9, 0.5]), 0.5);
 });
 
+test("sRubric：越界样本抛错（与 sOutcome 一致）", () => {
+  assert.throws(() => sRubric([1.1]));
+  assert.throws(() => sRubric([-0.1]));
+  assert.throws(() => sRubric([NaN]));
+  assert.throws(() => sRubric([Infinity]));
+});
+
 // ---------- 负 penalty 回归（曾变加分） ----------
 
 test("负 penalty 不再加分，按 0 处理", () => {
