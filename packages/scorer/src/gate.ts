@@ -13,9 +13,9 @@ const SECURITY_FIELDS: [keyof SecurityChecks, string][] = [
   ["no_prompt_leak", "no_prompt_leak"],
 ];
 
-/** 运行门控：安全一票否决 + 结果门槛。 */
-export function runGates(security: SecurityChecks, outcomeMin: number): GateResult {
-  const violations = SECURITY_FIELDS.filter(([key]) => !security[key]).map(
+/** 运行门控：安全一票否决 + 结果门槛。security 缺失时视为全不通过（安全第一，不崩溃）。 */
+export function runGates(security: SecurityChecks | undefined | null, outcomeMin: number): GateResult {
+  const violations = SECURITY_FIELDS.filter(([key]) => !security?.[key]).map(
     ([, name]) => name,
   );
   return {

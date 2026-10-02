@@ -12,6 +12,19 @@ import json
 _DYNAMIC_KEYS = ("timestamp", "random", "nonce", "id", "request_id")
 
 
+def _strip_dynamic(obj):
+    """递归剔除动态字段（dict 的键命中 _DYNAMIC_KEYS 时丢弃），并处理 list/标量。"""
+    if isinstance(obj, dict):
+        return {
+            k: _strip_dynamic(v)
+            for k, v in obj.items()
+            if k not in _DYNAMIC_KEYS
+        }
+    if isinstance(obj, list):
+        return [_strip_dynamic(v) for v in obj]
+    return obj
+
+
 def normalize_body(body: bytes) -> str:
     if not body:
         return ""
@@ -19,8 +32,7 @@ def normalize_body(body: bytes) -> str:
         obj = json.loads(body.decode("utf-8"))
     except Exception:
         return body.decode("utf-8", errors="replace")
-    for key in _DYNAMIC_KEYS:
-        obj.pop(key, None)
+    obj = _strip_dynamic(obj)
     return json.dumps(obj, sort_keys=True, ensure_ascii=False)
 
 

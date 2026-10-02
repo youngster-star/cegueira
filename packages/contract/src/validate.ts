@@ -26,9 +26,11 @@ export function isExecutableAcceptance(a: Acceptance): CheckResult {
         ? { ok: true }
         : { ok: false, reason: `assert 缺少布尔表达式 expr` };
     case "tool_call_in":
-      return a.tools !== undefined && a.tools.length > 0
+      return a.tools !== undefined &&
+        a.tools.length > 0 &&
+        a.tools.every((t) => typeof t === "string" && t.trim().length > 0)
         ? { ok: true }
-        : { ok: false, reason: `tool_call_in 缺少工具白名单 tools` };
+        : { ok: false, reason: `tool_call_in 缺少有效的工具白名单 tools（需非空字符串列表）` };
     case "no_loop":
       return { ok: true };
     case "latency_lt":

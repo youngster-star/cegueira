@@ -71,7 +71,7 @@ export function score(input: ScoreInput): ScoreResult {
   const sCore = sCoreOf(dimensions);
   const gates = runGates(input.security, dimensions.outcome);
 
-  const penalty = input.penalty ?? 0;
+  const penalty = Math.max(0, input.penalty ?? 0); // penalty 语义为扣分，不允许为负（否则变加分）
   const gateFactor = gates.security.passed ? 1 : 0;
   const raw = gateFactor * sCore - penalty;
   const finalScore = Math.round(100 * clamp01(raw) * 10) / 10; // 保留 1 位小数
