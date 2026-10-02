@@ -45,7 +45,9 @@ export function scoreEntry(query: string, text: string, tags: string[]): number 
   const t = text.toLowerCase();
   let score = 0;
   for (const tag of tags) {
-    if (q.includes(tag.toLowerCase())) score += 2;
+    const tagNorm = tag.trim().toLowerCase();
+    // 空 tag（''）会让 includes 恒 true，必须跳过，否则任何查询都命中该条目
+    if (tagNorm && q.includes(tagNorm)) score += 2;
   }
   for (const tok of tokenize(q)) {
     if (tok.length >= 2 && t.includes(tok)) score += 1;

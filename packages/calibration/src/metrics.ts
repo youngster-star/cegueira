@@ -64,11 +64,14 @@ export function quadraticWeightedKappa(
 export function decisionAccuracy(
   predicted: number[],
   human: number[],
+  nLevels = 6,
 ): number {
   if (predicted.length !== human.length) {
     throw new Error("predicted 与 human 长度不一致");
   }
   if (predicted.length === 0) throw new RangeError("样本不能为空");
+  assertLevels(predicted, nLevels, "predicted");
+  assertLevels(human, nLevels, "human");
   let ok = 0;
   for (let i = 0; i < predicted.length; i++) {
     if (Math.abs(predicted[i] - human[i]) <= 1) ok++;
@@ -81,10 +84,13 @@ export function falseRejectRate(
   predicted: number[],
   human: number[],
   passLevel = PASS_LEVEL,
+  nLevels = 6,
 ): number {
   if (predicted.length !== human.length) {
     throw new Error("predicted 与 human 长度不一致");
   }
+  assertLevels(predicted, nLevels, "predicted");
+  assertLevels(human, nLevels, "human");
   let humanPass = 0;
   let falselyRejected = 0;
   for (let i = 0; i < predicted.length; i++) {
