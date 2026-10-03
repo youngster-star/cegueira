@@ -51,6 +51,8 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             None,
         ))
+        // 系统通知（评分完成等场景提醒用户）
+        .plugin(tauri_plugin_notification::init())
         // 密钥安全存储命令桥（API Key 不落盘明文）
         .invoke_handler(tauri::generate_handler![
             set_secret,
