@@ -29,6 +29,7 @@
   "bundle": {
     "active": false,
     "targets": "all",
+    "icon": ["icons/icon.png"],
     "category": "DeveloperTool",
     "shortDescription": "Agent 实战陪练与自动评分工具",
     "longDescription": "Cegueira 是一款面向 Agent 开发者的实战陪练与自动评分工具，通过确定方向、生成契约与测试集、录制回放评分、沉淀技能画像，帮助用户从「失明」走向「复明」。"
