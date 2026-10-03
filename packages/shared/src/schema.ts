@@ -1,7 +1,8 @@
 /**
- * SQLite 业务库 schema 占位。
+ * SQLite 业务库 schema。
  * 由 Node sidecar 独占读写，Rust 层不直接读写（见 docs/开发文档.md §5.2）。
- * P1 实现评分/画像后在此填充 projects / scores / profiles 等表。
+ * 业务表（projects / scores / profiles）的权威 DDL 已落地于
+ * packages/persistence/src/sqlite.ts；此处保留版本号与 meta 表定义。
  */
 export const SCHEMA_VERSION = 1;
 
