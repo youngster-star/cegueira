@@ -236,6 +236,12 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/budget:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   packages/calibration:
     devDependencies:
       typescript:
@@ -274,6 +280,12 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/privacy:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   packages/profile:
     devDependencies:
       typescript:
@@ -297,6 +309,12 @@ importers:
         version: 5.9.3
 
   packages/shared:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/static-analysis:
     devDependencies:
       typescript:
         specifier: ^5.6.3
