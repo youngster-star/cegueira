@@ -2,7 +2,8 @@
 //!
 //! 职责边界（与开发文档 §5.1 一致）：Rust 只做「壳」——窗口与系统能力，
 //! 不承载任何业务逻辑。契约生成 / 评分 / 画像 / 阶梯等业务能力全部在
-//! 前端 TS 层（直接复用 packages/*），本文件仅负责：单实例、托盘、窗口生命周期。
+//! 前端 TS 层（直接复用 packages/*），本文件仅负责：单实例、托盘、窗口
+//! 生命周期、开机自启、密钥安全存储（API Key）。
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -10,6 +11,27 @@ use tauri::{
     Manager, WindowEvent,
 };
 use tauri_plugin_autostart::MacosLauncher;
+
+/// 安全存储密钥（写入系统密钥库，如 Windows 凭据管理器 / macOS Keychain）。
+#[tauri::command]
+fn set_secret(service: String, account: String, value: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
+    entry.set_password(&value).map_err(|e| e.to_string())
+}
+
+/// 读取密钥；不存在时返回错误。
+#[tauri::command]
+fn get_secret(service: String, account: String) -> Result<String, String> {
+    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
+    entry.get_password().map_err(|e| e.to_string())
+}
+
+/// 删除密钥。
+#[tauri::command]
+fn delete_secret(service: String, account: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
+    entry.delete_credential().map_err(|e| e.to_string())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -29,6 +51,12 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             None,
         ))
+        // 密钥安全存储命令桥（API Key 不落盘明文）
+        .invoke_handler(tauri::generate_handler![
+            set_secret,
+            get_secret,
+            delete_secret
+        ])
         // 托盘 + 关闭到托盘
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
