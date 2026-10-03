@@ -25,11 +25,12 @@ const DIRECTIONS = [
 
 interface Props {
   onGenerated: (bundle: ContractBundle) => void;
+  initialAssessment?: number;
 }
 
-export default function DirectionScreen({ onGenerated }: Props) {
+export default function DirectionScreen({ onGenerated, initialAssessment }: Props) {
   const [direction, setDirection] = useState(DIRECTIONS[0].value);
-  const [selfAssessment, setSelfAssessment] = useState(3);
+  const [selfAssessment, setSelfAssessment] = useState(initialAssessment ?? 3);
 
   const handleGenerate = () => {
     onGenerated(generateBundle({ direction, selfAssessment: String(selfAssessment) }));

@@ -5,6 +5,7 @@ import { initialState, type LadderState } from "@cegueira/ladder";
 import { createI18n, type Locale } from "@cegueira/i18n";
 import DirectionScreen from "./screens/DirectionScreen";
 import DevelopScreen from "./screens/DevelopScreen";
+import OnboardingScreen from "./screens/OnboardingScreen";
 import ResultScreen from "./screens/ResultScreen";
 import {
   applyTheme,
@@ -18,6 +19,8 @@ type Screen = "direction" | "develop" | "result";
 
 const SCREEN_KEY = "ceg.screen";
 const LOCALE_KEY = "ceg.locale";
+const ONBOARD_KEY = "ceg.onboarded";
+const SELF_KEY = "ceg.selfAssessment";
 
 function loadScreen(): Screen {
   try {
@@ -36,6 +39,14 @@ function loadLocale(): Locale {
   }
 }
 
+function loadOnboarded(): boolean {
+  try {
+    return localStorage.getItem(ONBOARD_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 const THEME_LABEL: Record<ThemeMode, string> = {
   light: "浅色",
   dark: "深色",
@@ -46,6 +57,8 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>(loadScreen);
   const [locale, setLocale] = useState<Locale>(loadLocale);
   const [theme, setTheme] = useState<ThemeMode>(loadTheme);
+  const [onboarded, setOnboarded] = useState<boolean>(loadOnboarded);
+  const [selfAssessment, setSelfAssessment] = useState<number>(3);
   const [bundle, setBundle] = useState<ContractBundle | null>(null);
   const [ladder, setLadder] = useState<LadderState>(initialState());
   const [score, setScore] = useState<ScoreResult | null>(null);
@@ -85,6 +98,17 @@ export default function App() {
 
   const toggleLocale = () => setLocale((l) => (l === "zh" ? "en" : "zh"));
 
+  const handleOnboarded = (level: number) => {
+    setSelfAssessment(level);
+    try {
+      localStorage.setItem(ONBOARD_KEY, "1");
+      localStorage.setItem(SELF_KEY, String(level));
+    } catch {
+      /* ignore */
+    }
+    setOnboarded(true);
+  };
+
   const STEPS: { id: Screen; label: string }[] = [
     { id: "direction", label: i18n.t("step.direction") },
     { id: "develop", label: i18n.t("step.develop") },
@@ -99,6 +123,16 @@ export default function App() {
   };
 
   const stepIndex = STEPS.findIndex((s) => s.id === screen);
+
+  if (!onboarded) {
+    return (
+      <div className="app">
+        <main className="content">
+          <OnboardingScreen onComplete={handleOnboarded} />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -131,6 +165,7 @@ export default function App() {
       <main className="content">
         {screen === "direction" && (
           <DirectionScreen
+            initialAssessment={selfAssessment}
             onGenerated={(b) => {
               setBundle(b);
               setScreen("develop");
