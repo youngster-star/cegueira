@@ -9,6 +9,7 @@ use tauri::{
     tray::TrayIconBuilder,
     Manager, WindowEvent,
 };
+use tauri_plugin_autostart::MacosLauncher;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -22,6 +23,11 @@ pub fn run() {
                     let _ = win.set_focus();
                 }
             },
+        ))
+        // 开机自启（默认不开启，前端通过 JS API 让用户自主开关）
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
         ))
         // 托盘 + 关闭到托盘
         .setup(|app| {
