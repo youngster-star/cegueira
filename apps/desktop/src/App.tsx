@@ -128,7 +128,7 @@ export default function App() {
     return (
       <div className="app">
         <main className="content">
-          <OnboardingScreen onComplete={handleOnboarded} />
+          <OnboardingScreen t={i18n.t} onComplete={handleOnboarded} />
         </main>
       </div>
     );
@@ -165,6 +165,7 @@ export default function App() {
       <main className="content">
         {screen === "direction" && (
           <DirectionScreen
+            t={i18n.t}
             initialAssessment={selfAssessment}
             onGenerated={(b) => {
               setBundle(b);
@@ -174,6 +175,7 @@ export default function App() {
         )}
         {screen === "develop" && bundle && (
           <DevelopScreen
+            t={i18n.t}
             bundle={bundle}
             ladder={ladder}
             setLadder={setLadder}
@@ -184,7 +186,7 @@ export default function App() {
           />
         )}
         {screen === "result" && score && (
-          <ResultScreen score={score} ladder={ladder} onRestart={reset} />
+          <ResultScreen t={i18n.t} score={score} ladder={ladder} onRestart={reset} />
         )}
       </main>
     </div>

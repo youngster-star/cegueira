@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ContractBundle } from "@cegueira/contract";
 import { score, type ScoreInput, type ScoreResult } from "@cegueira/scorer";
+import type { TFunc } from "@cegueira/i18n";
 import {
   LEVEL_DESC,
   explainL4,
@@ -19,22 +20,15 @@ const LEVEL_HINTS: Record<LadderLevel, string> = {
   4: "可运行示例：\nfor doc in docs:\n    if doc.score < 0.5:\n        continue  # 过滤低相关文档\n    answer += f\"[{doc.id}] {doc.text}\\n\"",
 };
 
-const LEVEL_HINTS_TITLE: Record<LadderLevel, string> = {
-  0: "报错提示",
-  1: "范围提示",
-  2: "提问引导",
-  3: "方案思路",
-  4: "参考代码",
-};
-
 interface Props {
+  t: TFunc;
   bundle: ContractBundle;
   ladder: LadderState;
   setLadder: (s: LadderState) => void;
   onDone: (s: ScoreResult) => void;
 }
 
-export default function DevelopScreen({ bundle, ladder, setLadder, onDone }: Props) {
+export default function DevelopScreen({ t, bundle, ladder, setLadder, onDone }: Props) {
   const [explanation, setExplanation] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -66,11 +60,13 @@ export default function DevelopScreen({ bundle, ladder, setLadder, onDone }: Pro
 
   return (
     <div className="screen">
-      <h1>开发中 · {bundle.projectMd.title}</h1>
-      <p className="lead">按契约拆解任务，卡住时使用辅助阶梯（默认 L2 提问引导）。</p>
+      <h1>
+        {t("develop.title")} · {bundle.projectMd.title}
+      </h1>
+      <p className="lead">{t("develop.lead")}</p>
 
       <div className="card">
-        <h2>契约概览</h2>
+        <h2>{t("develop.contractOverview")}</h2>
         <p className="muted" style={{ marginTop: 0 }}>
           {bundle.projectMd.coreFunction} · {bundle.projectMd.coreTech}
         </p>
@@ -89,9 +85,9 @@ export default function DevelopScreen({ bundle, ladder, setLadder, onDone }: Pro
       </div>
 
       <div className="card">
-        <h2>辅助阶梯</h2>
+        <h2>{t("develop.ladder")}</h2>
         <p className="muted" style={{ marginTop: 0 }}>
-          系统只在你想放弃时给「恰好够用」的帮助，而不是替你写。
+          {t("develop.ladderHint")}
         </p>
         <div className="ladder-levels">
           {([0, 1, 2, 3, 4] as LadderLevel[]).map((lv) => (
@@ -103,35 +99,35 @@ export default function DevelopScreen({ bundle, ladder, setLadder, onDone }: Pro
         </div>
 
         <div className="assist-box">
-          <div className="assist-tag">L{ladder.level} · {LEVEL_HINTS_TITLE[ladder.level]}</div>
+          <div className="assist-tag">L{ladder.level} · {t(`develop.hint${ladder.level}`)}</div>
           <div className="mono" style={{ whiteSpace: "pre-wrap" }}>{LEVEL_HINTS[ladder.level]}</div>
         </div>
 
         {ladder.level < 4 && (
           <div className="row">
             <button className="btn ghost" onClick={handleStuck}>
-              还是卡住，需要更多提示
+              {t("develop.stuck")}
             </button>
             <button className="btn ghost" onClick={handleL3}>
-              需要方案思路（L3）
+              {t("develop.needL3")}
             </button>
             <button className="btn ghost" onClick={handleL4}>
-              需要可运行代码（L4）
+              {t("develop.needL4")}
             </button>
           </div>
         )}
 
         {ladder.level === 4 && (
           <div className="card" style={{ background: "var(--bg-soft)" }}>
-            <h2>L4 追问（必答）</h2>
+            <h2>{t("develop.l4Title")}</h2>
             <p className="muted" style={{ marginTop: 0 }}>
-              请用自己的话说明：上面的代码为什么能解决问题？
+              {t("develop.l4Prompt")}
             </p>
             <textarea
               value={explanation}
               onChange={(e) => setExplanation(e.target.value)}
               rows={2}
-              placeholder="例如：它通过过滤低相关文档，避免把噪声内容写进答案……"
+              placeholder={t("develop.l4Placeholder")}
               style={{
                 width: "100%",
                 background: "var(--bg)",
@@ -144,7 +140,7 @@ export default function DevelopScreen({ bundle, ladder, setLadder, onDone }: Pro
             />
             <div className="row" style={{ marginTop: 10 }}>
               <button className="btn primary" onClick={handleExplain} disabled={!explanation.trim()}>
-                {ladder.l4Explained ? "已确认理解 ✓" : "提交解释"}
+                {ladder.l4Explained ? t("develop.confirmed") : t("develop.submitExplanation")}
               </button>
             </div>
           </div>
@@ -152,16 +148,16 @@ export default function DevelopScreen({ bundle, ladder, setLadder, onDone }: Pro
 
         {isOverReliant(ladder) && (
           <p className="hint" style={{ color: "var(--warn)" }}>
-            提示：频繁请求 L3/L4 会被记录为「掌握度可能被高估」的信号。
+            {t("develop.overReliant")}
           </p>
         )}
       </div>
 
       <div className="row">
         <button className="btn primary" onClick={handleSubmit} disabled={submitting}>
-          {submitting ? "评分中…" : "提交评分 →"}
+          {submitting ? t("develop.scoring") : t("develop.submit")}
         </button>
-        <span className="muted">提交后进入确定性回放评分。</span>
+        <span className="muted">{t("develop.submitHint")}</span>
       </div>
     </div>
   );

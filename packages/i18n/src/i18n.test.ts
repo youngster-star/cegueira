@@ -19,8 +19,8 @@ test("t：缺词回退返回 key（不静默）", () => {
 test("t：插值替换 {var}", () => {
   const zh = createI18n("zh");
   assert.equal(
-    zh.t("develop.upgrade", { level: "3" }),
-    "升级到 3",
+    zh.t("result.gatePassMin", { min: "0.300" }),
+    "通过（min = 0.300）",
   );
 });
 

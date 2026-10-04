@@ -1,25 +1,26 @@
 import { useState } from "react";
 import { LEVELS } from "@cegueira/profile";
+import type { TFunc } from "@cegueira/i18n";
 import { setApiKey } from "../lib/secret";
 
-const PROVIDERS = [
-  { id: "openai", label: "OpenAI", placeholder: "sk-..." },
-  { id: "anthropic", label: "Anthropic", placeholder: "sk-ant-..." },
-  { id: "custom", label: "其他（自定义）", placeholder: "你的 API Key" },
-];
+const PROVIDER_IDS = ["openai", "anthropic", "custom"] as const;
+
+const PLACEHOLDER: Record<string, string> = {
+  openai: "sk-...",
+  anthropic: "sk-ant-...",
+};
 
 interface Props {
+  t: TFunc;
   onComplete: (selfAssessment: number) => void;
 }
 
 /** 首次运行向导：选模型 → 填 API Key → 技能自评（PRD §3 首次体验）。 */
-export default function OnboardingScreen({ onComplete }: Props) {
-  const [provider, setProvider] = useState(PROVIDERS[0].id);
+export default function OnboardingScreen({ t, onComplete }: Props) {
+  const [provider, setProvider] = useState<(typeof PROVIDER_IDS)[number]>(PROVIDER_IDS[0]);
   const [apiKey, setApiKeyInput] = useState("");
   const [selfAssessment, setSelfAssessment] = useState(3);
   const [saving, setSaving] = useState(false);
-
-  const selected = PROVIDERS.find((p) => p.id === provider)!;
 
   const handleStart = async () => {
     if (!apiKey.trim()) return;
@@ -34,43 +35,43 @@ export default function OnboardingScreen({ onComplete }: Props) {
 
   return (
     <div className="screen">
-      <h1>欢迎使用 Cegueira</h1>
-      <p className="lead">三步完成初始设置，即可开始你的 Agent 实战陪练。</p>
+      <h1>{t("onboard.welcome")}</h1>
+      <p className="lead">{t("onboard.lead")}</p>
 
       <div className="card">
-        <h2>① 选择模型供应商</h2>
+        <h2>{t("onboard.section1")}</h2>
         <div className="seg">
-          {PROVIDERS.map((p) => (
+          {PROVIDER_IDS.map((id) => (
             <button
-              key={p.id}
-              className={provider === p.id ? "on" : ""}
-              onClick={() => setProvider(p.id)}
+              key={id}
+              className={provider === id ? "on" : ""}
+              onClick={() => setProvider(id)}
             >
-              {p.label}
+              {t(`onboard.provider.${id}`)}
             </button>
           ))}
         </div>
       </div>
 
       <div className="card">
-        <h2>② 填入 API Key</h2>
+        <h2>{t("onboard.section2")}</h2>
         <p className="muted" style={{ marginTop: 0 }}>
-          采用 BYO Key 模式，Key 将加密存入系统密钥库，不会明文落盘。评测前会给出成本预估并请你确认。
+          {t("onboard.keyHint")}
         </p>
         <input
           className="input"
           type="password"
           value={apiKey}
-          placeholder={selected.placeholder}
+          placeholder={PLACEHOLDER[provider] ?? t("onboard.customPlaceholder")}
           onChange={(e) => setApiKeyInput(e.target.value)}
           autoComplete="off"
         />
       </div>
 
       <div className="card">
-        <h2>③ 技能自评</h2>
+        <h2>{t("onboard.section3")}</h2>
         <p className="muted" style={{ marginTop: 0 }}>
-          对照下表诚实评估当前水平，用于初始化你的技能画像。
+          {t("onboard.selfHint")}
         </p>
         <div className="seg">
           {LEVELS.map((l) => (
@@ -84,7 +85,8 @@ export default function OnboardingScreen({ onComplete }: Props) {
           ))}
         </div>
         <p className="hint">
-          已选：<span className="mono">{LEVELS[selfAssessment - 1].name}</span>
+          {t("direction.selected")}
+          <span className="mono">{LEVELS[selfAssessment - 1].name}</span>
           （{LEVELS[selfAssessment - 1].min}–{LEVELS[selfAssessment - 1].max} 分）
         </p>
       </div>
@@ -95,7 +97,7 @@ export default function OnboardingScreen({ onComplete }: Props) {
           onClick={handleStart}
           disabled={!apiKey.trim() || saving}
         >
-          {saving ? "保存中…" : "开始练习 →"}
+          {saving ? t("onboard.saving") : t("onboard.start")}
         </button>
       </div>
     </div>

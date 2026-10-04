@@ -23,7 +23,7 @@ test("interpolate：数字参数转字符串", () => {
 
 test("t：插值参数含特殊字符", () => {
   const zh = createI18n("zh");
-  assert.equal(zh.t("develop.upgrade", { level: "L4" }), "升级到 L4");
+  assert.equal(zh.t("result.gatePassMin", { min: "0.30" }), "通过（min = 0.30）");
 });
 
 test("t：无参数调用缺词返回 key", () => {

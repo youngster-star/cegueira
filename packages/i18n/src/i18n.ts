@@ -9,6 +9,9 @@ export interface I18n {
   t(key: string, params?: InterpolateParams): string;
 }
 
+/** 翻译函数类型（供组件 props 传递）。 */
+export type TFunc = I18n["t"];
+
 function dictOf(locale: Locale): Record<string, string> {
   return locale === "zh" ? zhDict : enDict;
 }
