@@ -250,6 +250,9 @@ importers:
 
   packages/contract:
     dependencies:
+      '@cegueira/llm':
+        specifier: workspace:*
+        version: link:../llm
       '@cegueira/rag':
         specifier: workspace:*
         version: link:../rag
@@ -269,6 +272,12 @@ importers:
       '@cegueira/rag':
         specifier: workspace:*
         version: link:../rag
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/llm:
     devDependencies:
       typescript:
         specifier: ^5.6.3
@@ -306,6 +315,9 @@ importers:
 
   packages/scorer:
     dependencies:
+      '@cegueira/llm':
+        specifier: workspace:*
+        version: link:../llm
       '@cegueira/trace':
         specifier: workspace:*
         version: link:../trace
