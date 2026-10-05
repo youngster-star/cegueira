@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ContractBundle } from "@cegueira/contract";
 import type { ScoreResult } from "@cegueira/scorer";
 import { initialState, type LadderState } from "@cegueira/ladder";
 import { createI18n, type Locale } from "@cegueira/i18n";
+import CommandPalette from "./components/CommandPalette";
+import type { Command } from "./lib/commands";
 import DirectionScreen from "./screens/DirectionScreen";
 import DevelopScreen from "./screens/DevelopScreen";
 import OnboardingScreen from "./screens/OnboardingScreen";
@@ -62,6 +64,7 @@ export default function App() {
   const [bundle, setBundle] = useState<ContractBundle | null>(null);
   const [ladder, setLadder] = useState<LadderState>(initialState());
   const [score, setScore] = useState<ScoreResult | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const i18n = createI18n(locale);
 
@@ -87,6 +90,18 @@ export default function App() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  // 命令面板快捷键：Ctrl/Cmd+K 切换
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const cycleTheme = () => {
     setTheme((t) => {
@@ -120,6 +135,42 @@ export default function App() {
     setBundle(null);
     setLadder(initialState());
     setScore(null);
+  };
+
+  // 命令面板命令列表（随状态动态构建）
+  const commands = useMemo<Command[]>(
+    () => [
+      { id: "theme", label: i18n.t("palette.theme"), hint: THEME_LABEL[theme] },
+      { id: "locale", label: i18n.t("palette.locale"), hint: locale === "zh" ? "English" : "中文" },
+      { id: "goto-direction", label: i18n.t("palette.gotoDirection") },
+      { id: "goto-develop", label: i18n.t("palette.gotoDevelop"), disabled: !bundle },
+      { id: "goto-result", label: i18n.t("palette.gotoResult"), disabled: !score },
+      { id: "restart", label: i18n.t("palette.restart") },
+    ],
+    [i18n, locale, theme, bundle, score],
+  );
+
+  const handleRunCommand = (cmd: Command) => {
+    switch (cmd.id) {
+      case "theme":
+        cycleTheme();
+        break;
+      case "locale":
+        toggleLocale();
+        break;
+      case "goto-direction":
+        setScreen("direction");
+        break;
+      case "goto-develop":
+        if (bundle) setScreen("develop");
+        break;
+      case "goto-result":
+        if (score) setScreen("result");
+        break;
+      case "restart":
+        reset();
+        break;
+    }
   };
 
   const stepIndex = STEPS.findIndex((s) => s.id === screen);
@@ -189,6 +240,16 @@ export default function App() {
           <ResultScreen t={i18n.t} score={score} ladder={ladder} onRestart={reset} />
         )}
       </main>
+
+      {paletteOpen && (
+        <CommandPalette
+          commands={commands}
+          onRun={handleRunCommand}
+          onClose={() => setPaletteOpen(false)}
+          placeholder={i18n.t("palette.placeholder")}
+          emptyText={i18n.t("palette.empty")}
+        />
+      )}
     </div>
   );
 }

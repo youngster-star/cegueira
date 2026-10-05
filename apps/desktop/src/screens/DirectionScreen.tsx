@@ -38,6 +38,8 @@ export default function DirectionScreen({ t, onGenerated, initialAssessment }: P
               onClick={() => setDirection(d.value)}
               role="button"
               tabIndex={0}
+              aria-pressed={direction === d.value}
+              aria-label={t(`direction.${d.id}.label`)}
               onKeyDown={(e) => e.key === "Enter" && setDirection(d.value)}
             >
               <div className="dir-title">{t(`direction.${d.id}.label`)}</div>

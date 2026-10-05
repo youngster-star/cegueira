@@ -100,6 +100,16 @@ export const zhDict: Dict = {
   "onboard.saving": "保存中…",
   "onboard.start": "开始练习 →",
 
+  // 命令面板
+  "palette.placeholder": "搜索命令…",
+  "palette.empty": "无匹配命令",
+  "palette.theme": "切换主题",
+  "palette.locale": "切换语言",
+  "palette.gotoDirection": "前往方向",
+  "palette.gotoDevelop": "前往开发",
+  "palette.gotoResult": "前往结果",
+  "palette.restart": "重新开始",
+
   "common.ok": "确定",
   "common.cancel": "取消",
 };
@@ -195,6 +205,16 @@ export const enDict: Dict = {
   "onboard.selfHint": "Assess your current level honestly to initialize your skill profile.",
   "onboard.saving": "Saving…",
   "onboard.start": "Start practicing →",
+
+  // Command palette
+  "palette.placeholder": "Search commands…",
+  "palette.empty": "No matching commands",
+  "palette.theme": "Switch theme",
+  "palette.locale": "Switch language",
+  "palette.gotoDirection": "Go to direction",
+  "palette.gotoDevelop": "Go to develop",
+  "palette.gotoResult": "Go to result",
+  "palette.restart": "Restart",
 
   "common.ok": "OK",
   "common.cancel": "Cancel",
