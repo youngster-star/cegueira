@@ -13,6 +13,7 @@ import { recordCommand } from "./commands/record.js";
 import { rubricCommand } from "./commands/rubric.js";
 import { scanCommand } from "./commands/scan.js";
 import { submitCommand } from "./commands/submit.js";
+import { verifyBundle, verifyCommand } from "./commands/verify.js";
 
 export const HELP_TEXT = `Cegueira 陪练 CLI
 
@@ -28,6 +29,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
   profile  技能画像聚合（--store <数据目录> [--skill <名>]）
   history  评分历史（--store <数据目录> [--project <id>]）
   submit   提交评分（--input <评分输入json>）
+  verify   契约五件套自检（--dir <契约目录>，默认 cegueira-contract）
   doctor   环境自检
 
 示例：
@@ -40,6 +42,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
   ceg profile --store .ceg-data
   ceg history --store .ceg-data
   ceg submit --input score-input.json
+  ceg verify --dir cegueira-contract
   ceg doctor
 `;
 
@@ -49,7 +52,8 @@ export async function run(argv: string[]): Promise<void> {
   switch (command) {
     case "init": {
       const direction = options.direction ?? options.d ?? "RAG 问答 Agent";
-      const outDir = initCommand(direction);
+      // 透传 --out/--o：此前被忽略，--out 形同虚设（永远落到默认目录）。
+      const outDir = initCommand(direction, options.out ?? options.o);
       console.log(`✓ 已生成契约五件套到 ${outDir}/`);
       break;
     }
@@ -162,6 +166,12 @@ export async function run(argv: string[]): Promise<void> {
         throw new Error("submit 需要 --input <评分输入json>");
       }
       console.log(submitCommand(input));
+      break;
+    }
+    case "verify": {
+      const dir = options.dir ?? options.d ?? "cegueira-contract";
+      console.log(verifyCommand(dir));
+      if (!verifyBundle(dir).ok) process.exitCode = 1;
       break;
     }
     case "doctor": {

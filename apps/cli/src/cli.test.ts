@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "./args.js";
+import { run } from "./cli.js";
 import { doctorCommand, validateProxy } from "./commands/doctor.js";
 import {
   deriveSecurity,
@@ -24,6 +25,7 @@ import {
 } from "./commands/grade.js";
 import { historyCommand, recordScore } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
+import { verifyBundle, verifyCommand } from "./commands/verify.js";
 import {
   calibrateCommand,
   parseCalibrationFile,
@@ -1247,6 +1249,81 @@ test("loadTrace：无 manifest 时从三件套归一化", () => {
     writeFileSync(join(runDir, "tool_io.log"), "");
     const trace = loadTrace(runDir);
     assert.equal(trace.retrievals[0].returnedDocIds[0], "d1");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- ceg verify：契约五件套自检 ----
+
+test("verify：ceg init 产物通过自检", () => {
+  const dir = makeTmpDir();
+  try {
+    const out = initCommand("RAG 问答", join(dir, "contract"));
+    const r = verifyBundle(out);
+    assert.equal(r.ok, true, JSON.stringify(r.items));
+    assert.ok(verifyCommand(out).includes("通过"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("verify：contract 被改坏 → 未通过并给出原因", () => {
+  const dir = makeTmpDir();
+  try {
+    const out = initCommand("RAG", join(dir, "c"));
+    const cp = join(out, "contract.json");
+    const c = JSON.parse(readFileSync(cp, "utf8")) as { schema: string };
+    c.schema = "9.9";
+    writeFileSync(cp, JSON.stringify(c));
+    const r = verifyBundle(out);
+    assert.equal(r.ok, false);
+    assert.ok(r.items.some((i) => i.name === "contract 校验" && !i.ok));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("verify：缺文件 → 未通过", () => {
+  const dir = makeTmpDir();
+  try {
+    const out = initCommand("RAG", join(dir, "c"));
+    rmSync(join(out, "evalset.json"));
+    const r = verifyBundle(out);
+    assert.equal(r.ok, false);
+    assert.ok(r.items.some((i) => i.name === "五件套齐全" && !i.ok));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("run：ceg init --out 透传输出目录（回归：曾被忽略）", async () => {
+  const dir = makeTmpDir();
+  const origLog = console.log;
+  console.log = () => {};
+  try {
+    const out = join(dir, "contract");
+    await run(["init", "--direction", "RAG", "--out", out]);
+    assert.ok(existsSync(join(out, "contract.json")), "--out 目录应生成五件套");
+    process.exitCode = 0;
+    await run(["verify", "--dir", out]);
+    assert.notEqual(process.exitCode, 1);
+  } finally {
+    console.log = origLog;
+    process.exitCode = 0;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("verify：mandatory_tests 未在 evalset 定义 → 硬失败", () => {
+  const dir = makeTmpDir();
+  try {
+    const out = initCommand("RAG", join(dir, "c"));
+    const ep = join(out, "evalset.json");
+    writeFileSync(ep, JSON.stringify({ tests: [{ id: "other" }] }));
+    const r = verifyBundle(out);
+    assert.equal(r.ok, false);
+    assert.ok(r.items.some((i) => i.name === "evalset 覆盖 mandatory_tests" && !i.ok));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
