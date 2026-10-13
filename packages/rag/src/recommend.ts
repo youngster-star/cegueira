@@ -4,6 +4,7 @@
  */
 import type { KnowledgeBase } from "./kb.js";
 import { KeywordRetriever } from "./retriever.js";
+import { VectorRetriever, type Embedder } from "./vector.js";
 import {
   UNKNOWN_RESPONSE,
   type DirectionRecommendation,
@@ -60,6 +61,22 @@ export function getHint(
 ): HintResult {
   const retriever = new KeywordRetriever(kb);
   const r = retriever.retrieve(topic, { kind: "hint" });
+  if (!r.answered) return { answered: false, text: UNKNOWN_RESPONSE };
+  const top = r.hits[0].entry;
+  return { answered: true, text: top.text, source: top.source };
+}
+
+/**
+ * 阶梯提示（向量检索版）：与 `getHint` 语义一致，改用注入的 embedder 做语义召回。
+ * 供接入真实 embedding 后替换关键词 MVP（P3 剩余项）；未命中仍回退「不知道」。
+ */
+export async function getHintVector(
+  kb: KnowledgeBase,
+  topic: string,
+  embedder: Embedder,
+): Promise<HintResult> {
+  const retriever = new VectorRetriever(kb, embedder);
+  const r = await retriever.retrieve(topic, { kind: "hint" });
   if (!r.answered) return { answered: false, text: UNKNOWN_RESPONSE };
   const top = r.hits[0].entry;
   return { answered: true, text: top.text, source: top.source };

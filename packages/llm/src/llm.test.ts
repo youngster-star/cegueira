@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert";
 import {
   createAnthropicProvider,
+  createOllamaEmbedder,
   createOllamaProvider,
   createOpenAIProvider,
   type LlmProvider,
@@ -83,6 +84,39 @@ test("ollama：连接失败抛出可读错误", async () => {
       () => p.chat({ messages: [{ role: "user", content: "x" }] }),
       /无法连接.*Ollama 服务已启动/,
     );
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("ollama embedder：请求体含 model/input，解析 embeddings", async () => {
+  let captured!: { url: string; body: Record<string, unknown> };
+  mockFetch((url, init) => {
+    captured = { url, body: JSON.parse(init.body as string) };
+    return jsonResponse({ embeddings: [[0.1, 0.2], [0.3, 0.4]] });
+  });
+  try {
+    const e = createOllamaEmbedder({ model: "nomic-embed-text" });
+    const vecs = await e.embed(["a", "b"]);
+    assert.equal(captured.url, "http://127.0.0.1:11434/api/embed");
+    assert.equal(captured.body.model, "nomic-embed-text");
+    assert.deepEqual(captured.body.input, ["a", "b"]);
+    assert.deepEqual(vecs, [[0.1, 0.2], [0.3, 0.4]]);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("ollama embedder：空输入不发请求", async () => {
+  let called = false;
+  mockFetch(() => {
+    called = true;
+    return jsonResponse({ embeddings: [] });
+  });
+  try {
+    const e = createOllamaEmbedder();
+    assert.deepEqual(await e.embed([]), []);
+    assert.equal(called, false);
   } finally {
     restoreFetch();
   }
