@@ -23,7 +23,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
   record   跑一次 Agent 并落录制产物（--agent <目录> --out <录制目录>）
   grade    契约 + 录制目录 → 评分报告（--contract <contract.json> --run <录制目录> [--store <目录>] [--system-prompt <文件>] [--evalset <evalset.json>] [--ran-cases a,b]）
   scan     L1 静态分析（--path <文件或目录>）
-  rubric   LLM 评审 rubric 维度（--rubric <json> --artifact <文件> [--llm a,b] [--budget <tokens>] [--yes]）
+  rubric   LLM 评审 rubric 维度（--rubric <yaml|json> --artifact <文件> [--llm a,b] [--budget <tokens>] [--yes]）
   calibrate 校准报告（--labels <人工标注json>）
   profile  技能画像聚合（--store <数据目录> [--skill <名>]）
   history  评分历史（--store <数据目录> [--project <id>]）
@@ -35,7 +35,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
   ceg record --agent ./my-agent --out recordings/run-1
   ceg grade --contract cegueira-contract/contract.json --run recordings/run-1 --store .ceg-data
   ceg scan --path ./my-agent
-  ceg rubric --rubric cegueira-contract/rubrics.json --artifact ./my-agent/main.py --yes
+  ceg rubric --rubric cegueira-contract/rubric.yaml --artifact ./my-agent/main.py --yes
   ceg calibrate --labels calibration-labels.json
   ceg profile --store .ceg-data
   ceg history --store .ceg-data

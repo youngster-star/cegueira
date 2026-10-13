@@ -29,6 +29,7 @@ import {
 } from "@cegueira/llm";
 import { processPrivacy, type OutboundPurpose } from "@cegueira/privacy";
 import { evaluateRubricCrossFamily, type RubricPrompt } from "@cegueira/scorer";
+import { parse as parseYaml } from "yaml";
 
 export interface RubricOptions {
   rubricPath: string;
@@ -68,9 +69,17 @@ export const defaultProviderFactory: ProviderFactory = (ids, config) =>
 /**
  * 解析 rubric 文件：接受 `[{id,prompt}]` 或 `{rubrics:[{id,prompt}]}` 两种形状。
  * 与 contract.json 的 `rubrics` 字段同形，便于直接喂 `ceg init` 的产物。
+ *
+ * 先按 JSON 解析，失败再按 YAML——因为 `ceg init` 产出的正是 `rubric.yaml`，
+ * 让用户无需手工转成 JSON 即可直接评价。
  */
 export function parseRubricFile(text: string): RubricPrompt[] {
-  const raw = JSON.parse(text) as unknown;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    raw = parseYaml(text);
+  }
   const arr = Array.isArray(raw)
     ? raw
     : raw && typeof raw === "object" && Array.isArray((raw as { rubrics?: unknown }).rubrics)

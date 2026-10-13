@@ -208,6 +208,9 @@ importers:
       '@cegueira/trace':
         specifier: workspace:*
         version: link:../../packages/trace
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
     devDependencies:
       typescript:
         specifier: ^5.6.3

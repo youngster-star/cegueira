@@ -159,6 +159,20 @@ test("parseRubricFile：接受数组与 {rubrics}，拒绝空与坏形状", () =
   assert.throws(() => parseRubricFile('[{"id":"a"}]'), /字符串 id 与 prompt/);
 });
 
+test("parseRubricFile：接受 YAML（ceg init 的 rubric.yaml）", () => {
+  const yaml = [
+    "schema: '1.0'",
+    "mandatory_tests: []",
+    "gates:",
+    "  security: [tool_call_whitelist]",
+    "  outcome_min: 0.3",
+    "rubrics:",
+    "  - id: clarity",
+    "    prompt: 评估清晰度",
+  ].join("\n");
+  assert.deepEqual(parseRubricFile(yaml), [{ id: "clarity", prompt: "评估清晰度" }]);
+});
+
 test("defaultProviderFactory：未知 provider 报错", () => {
   assert.throws(() => defaultProviderFactory(["bogus"], {}), /未知 LLM provider：bogus/);
 });
