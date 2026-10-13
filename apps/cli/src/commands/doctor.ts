@@ -27,6 +27,25 @@ export function maskProxy(url: string): string {
   return at >= 0 ? `***@${url.slice(at + 1)}` : url;
 }
 
+/**
+ * 校验代理 URL 格式：仅接受 http/https、含主机名。返回错误说明或 null（合法）。
+ * 只做格式校验——Node 的 fetch 默认不走 HTTP_PROXY，真正连通性验证需代理 agent，
+ * 不在自检范围内（如实报告配置本身是否可用）。
+ */
+export function validateProxy(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "不是合法 URL";
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return `协议应为 http/https，实际 ${parsed.protocol}`;
+  }
+  if (!parsed.hostname) return "缺少主机名";
+  return null;
+}
+
 /** 代理检测结果。 */
 export interface ProxyInfo {
   detected: boolean;
@@ -77,12 +96,23 @@ export function doctorCommand(
 
   const proxy = detectProxy(env);
   if (proxy.detected) {
-    const parts = [
-      proxy.http && `HTTP=${maskProxy(proxy.http)}`,
-      proxy.https && `HTTPS=${maskProxy(proxy.https)}`,
-      proxy.all && `ALL=${maskProxy(proxy.all)}`,
-    ].filter(Boolean) as string[];
-    items.push({ name: "proxy", ok: true, detail: parts.join(" ") });
+    const entries: [string, string][] = [];
+    if (proxy.http) entries.push(["HTTP", proxy.http]);
+    if (proxy.https) entries.push(["HTTPS", proxy.https]);
+    if (proxy.all) entries.push(["ALL", proxy.all]);
+    const problems = entries
+      .map(([name, url]) => {
+        const err = validateProxy(url);
+        return err ? `${name}(${err})` : null;
+      })
+      .filter(Boolean) as string[];
+    const parts = entries.map(([name, url]) => `${name}=${maskProxy(url)}`);
+    items.push({
+      name: "proxy",
+      ok: problems.length === 0,
+      detail:
+        parts.join(" ") + (problems.length > 0 ? `  ⚠ 非法：${problems.join("；")}` : ""),
+    });
   } else {
     items.push({
       name: "proxy",

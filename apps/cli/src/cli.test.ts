@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "./args.js";
-import { doctorCommand } from "./commands/doctor.js";
+import { doctorCommand, validateProxy } from "./commands/doctor.js";
 import {
   deriveSecurity,
   detectPromptLeak,
@@ -135,6 +135,19 @@ test("doctor 自检返回文本", () => {
   const out = doctorCommand();
   assert.ok(out.includes("node"));
   assert.ok(out.includes("python"));
+});
+
+test("validateProxy：接受 http/https，拒绝非法与错协议", () => {
+  assert.equal(validateProxy("http://127.0.0.1:7890"), null);
+  assert.equal(validateProxy("https://proxy.example.com:443"), null);
+  assert.match(validateProxy("not a url") ?? "", /不是合法 URL/);
+  assert.match(validateProxy("ftp://x:21") ?? "", /协议应为/);
+});
+
+test("doctor：非法代理配置如实标为不通过", () => {
+  const out = doctorCommand(process.cwd(), { HTTP_PROXY: "ftp://bad:1" } as NodeJS.ProcessEnv);
+  assert.ok(out.includes("proxy"));
+  assert.ok(out.includes("非法"));
 });
 
 // ---- ceg rubric：隐私预览 + 跨家族 LLM 评审 ----
