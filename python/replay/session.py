@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import uuid
 from pathlib import Path
 
@@ -25,7 +26,20 @@ SCHEMA_VERSION = "1.0"
 
 
 class RecordingSession:
-    """采集一次录制的三类产物（内存中），`save()` 落盘。"""
+    """采集一次录制的三类产物（内存中），`save()` 落盘。
+
+    ## 为什么必须加锁
+
+    三类产物的写入来自**不同线程**：
+
+    - `add_http` 由 HTTP 服务器线程调用（录制代理收到 Agent 请求时）
+    - `add_span` / `add_tool_io` 由主线程调用（Agent 自己的埋点）
+
+    不加锁就会出现**丢写**：两个线程同时 `list.append` 或同时读写 `dict`
+    在 CPython 下不一定安全（长度与内容分两步更新）。丢写的症状极其隐蔽
+    ——录制看起来成功了，只是少了一两条 span，而 S_process 的步数、冗余率、
+    成功率全部建立在这些数组上，少一条就是多算一分，且不报任何错。
+    """
 
     def __init__(self, run_id: str | None = None):
         self.run_id = run_id or uuid.uuid4().hex
@@ -33,6 +47,8 @@ class RecordingSession:
         self.http_records: dict[str, dict] = {}
         self.spans: list[dict] = []
         self.tool_io: list[dict] = []
+        # 保护上面三个容器；所有读写都必须持有它
+        self._lock = threading.Lock()
 
     # ---- 采集 ----
 
@@ -47,18 +63,19 @@ class RecordingSession:
     ) -> str:
         """记录一条 LLM HTTP 请求-响应对，返回其指纹。"""
         fp = fingerprint(method, host, path, body)
-        self.http_records[fp] = {
-            "request": {
-                "method": method,
-                "host": host,
-                "path": path,
-                "body": body.decode("utf-8", errors="replace"),
-            },
-            "response": {
-                "status": status,
-                "body": resp_body.decode("utf-8", errors="replace"),
-            },
-        }
+        with self._lock:
+            self.http_records[fp] = {
+                "request": {
+                    "method": method,
+                    "host": host,
+                    "path": path,
+                    "body": body.decode("utf-8", errors="replace"),
+                },
+                "response": {
+                    "status": status,
+                    "body": resp_body.decode("utf-8", errors="replace"),
+                },
+            }
         return fp
 
     def add_span(
@@ -68,22 +85,40 @@ class RecordingSession:
         start_ms: float,
         duration_ms: float,
         parent_id: str | None = None,
+        *,
+        span_id: str | None = None,
         **attributes,
     ) -> str:
-        """记录一个结构化 span，返回其 id。"""
-        span_id = f"span-{len(self.spans) + 1}"
-        self.spans.append(
-            {
-                "id": span_id,
-                "parent_id": parent_id,
-                "name": name,
-                "kind": kind,
-                "start_ms": start_ms,
-                "duration_ms": duration_ms,
-                "attributes": attributes,
-            }
-        )
-        return span_id
+        """记录一个结构化 span，返回其 id。
+
+        `span_id` 缺省时由当前长度顺位分配，且**必须在锁内分配**——否则两个
+        线程可能拿到同一个 `span-3`，而 span id 是回放比对与轨迹展示的引用键。
+
+        ## 为什么要能传入 span_id（record CLI 用）
+
+        Agent 进程里 `TraceCollector` 在 span **创建时**就把 id 定好了，并在
+        span **结束**时经协议回传（见 python/replay/protocol.py）。若这里重新
+        顺位分配，嵌套场景就会错位：子 span 先结束、先入列，父 span 后入列，
+        于是父的 id 变成子原本引用的那个，`parent_id` 指向了错误的对象。
+        因此 record CLI 必须把协议里带过来的 id 原样透传。
+
+        `span_id` 设为**关键字专用**，避免它与某个恰叫 `span_id` 的自定义
+        attribute 撞名（attribute 全部走 `**attributes`）。
+        """
+        with self._lock:
+            sid = span_id if span_id is not None else f"span-{len(self.spans) + 1}"
+            self.spans.append(
+                {
+                    "id": sid,
+                    "parent_id": parent_id,
+                    "name": name,
+                    "kind": kind,
+                    "start_ms": start_ms,
+                    "duration_ms": duration_ms,
+                    "attributes": attributes,
+                }
+            )
+        return sid
 
     def add_tool_io(
         self,
@@ -92,32 +127,53 @@ class RecordingSession:
         output,
         ok: bool,
         latency_ms: float,
+        source: str = "agent",
     ) -> None:
-        """记录一条工具输入输出。"""
-        self.tool_io.append(
-            {
-                "tool": tool,
-                "input": input_,
-                "output": output,
-                "ok": ok,
-                "latency_ms": latency_ms,
-            }
-        )
+        """记录一条工具输入输出。
+
+        `source` 区分 **Agent 自己声明的工具**（`"agent"`）与 **MockRegistry
+        记录的外部依赖调用**（`"dep"`）。两类都落进同一个 `tool_io.log`，
+        由加载器按 `source` 过滤——一次 `retrieve()` 内部可能打 3 个外部调用，
+        但用户眼里那是一步，所以 `AgentTrace.tools` 只收 `"agent"` 那些。
+        外部依赖记录留在文件里供诊断与防作弊使用。
+
+        不设默认值之外的校验：未知 source 由加载器报错，此处只如实存储。
+        """
+        with self._lock:
+            self.tool_io.append(
+                {
+                    "tool": tool,
+                    "input": input_,
+                    "output": output,
+                    "ok": ok,
+                    "latency_ms": latency_ms,
+                    "source": source,
+                }
+            )
 
     # ---- 落盘 ----
 
     def save(self, out_dir: Path) -> "RecordedRun":
-        """把三类产物写入 out_dir，返回产物路径集合。"""
+        """把三类产物写入 out_dir，返回产物路径集合。
+
+        在锁内取出三个容器的快照再写盘：若边写边有新 span 进来，
+        落盘内容会是一个「半路截断」的混合体，而不是某一时刻的一致状态。
+        """
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
+
+        with self._lock:
+            http_records = dict(self.http_records)
+            spans = list(self.spans)
+            tool_io = list(self.tool_io)
 
         http_path = out_dir / "http.yaml"
         trace_path = out_dir / "trace.json"
         tool_io_path = out_dir / "tool_io.log"
 
-        write_http_yaml(http_path, self.http_records)
-        write_trace_json(trace_path, self.run_id, self.spans)
-        write_tool_io(tool_io_path, self.tool_io)
+        write_http_yaml(http_path, http_records)
+        write_trace_json(trace_path, self.run_id, spans)
+        write_tool_io(tool_io_path, tool_io)
 
         return RecordedRun(
             run_id=self.run_id,

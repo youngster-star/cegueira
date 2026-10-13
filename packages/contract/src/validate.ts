@@ -2,6 +2,7 @@
  * 契约校验器：校验 contract.json 合法性、acceptance 可构造为可执行断言。
  * PRD §6.3「可校验性自检」的判定核心。
  */
+import { checkExpr, FACT_TYPES } from "@cegueira/trace";
 import {
   CONTRACT_SCHEMA,
   SECURITY_ASSERTIONS,
@@ -18,13 +19,24 @@ const WEIGHT_TOLERANCE = 1e-6;
 
 /**
  * 单条 acceptance 是否可构造为可执行断言（PRD §6.3 自检的最小判定单元）。
+ *
+ * `assert` 的判定是**真解析 + 静态类型检查**：表达式必须能通过 @cegueira/trace 的
+ * 受限表达式解析器，标识符全部命中事实词汇表，且类型自洽、顶层为布尔。
+ * 仅检查「非空字符串」是不够的——`"cited_doc_ids 全部来自检索结果"` 这种自然语言
+ * 句子会蒙混过关，到评分时才暴露为一条永远无法求值的断言。
+ * 第二参数传 `FACT_TYPES` 而非名字集合：白名单与类型表是同一份数据。
  */
 export function isExecutableAcceptance(a: Acceptance): CheckResult {
   switch (a.type) {
-    case "assert":
-      return a.expr !== undefined && a.expr.trim().length > 0
+    case "assert": {
+      if (a.expr === undefined || a.expr.trim().length === 0) {
+        return { ok: false, reason: `assert 缺少布尔表达式 expr` };
+      }
+      const parsed = checkExpr(a.expr, FACT_TYPES);
+      return parsed.ok
         ? { ok: true }
-        : { ok: false, reason: `assert 缺少布尔表达式 expr` };
+        : { ok: false, reason: `assert 表达式不可求值：${parsed.reason}（原文 ${JSON.stringify(a.expr)}）` };
+    }
     case "tool_call_in":
       return a.tools !== undefined &&
         a.tools.length > 0 &&

@@ -3,6 +3,7 @@
  * 五件套：project.md（人读）、contract.json（机读）、rubric.yaml（评分引擎）、
  *         checks/（检测配方）、evalset/（黄金测试集）。
  */
+import type { AcceptanceLike } from "@cegueira/trace";
 
 /** 契约 schema 版本。 */
 export const CONTRACT_SCHEMA = "1.0";
@@ -24,6 +25,18 @@ export interface Acceptance {
   maxMs?: number;
   description?: string;
 }
+
+/**
+ * 编译期漂移断言（A1）。
+ *
+ * @cegueira/trace 里的 `AcceptanceLike` 是本接口的结构性镜像——trace 不能
+ * 反向 import contract（否则 contract→trace→contract 成环），只能各写一份。
+ * 这条断言保证两份定义不会悄悄分叉：一旦字段不再兼容，编译直接失败。
+ */
+type MustBeTrue<T extends true> = T;
+export type AcceptanceMatchesTrace = MustBeTrue<
+  Acceptance extends AcceptanceLike ? true : false
+>;
 
 /** 任务：契约 DAG 的叶子单元，含验收条件、依赖、权重。 */
 export interface Task {

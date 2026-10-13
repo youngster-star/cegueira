@@ -45,8 +45,14 @@ export function generateBundle(input: GenerationInput, projectId?: string): Cont
             name: "切分并入库",
             depends_on: [],
             weight: 1.0,
+            // 本阶段观测到的只有「调了什么工具、花了多久」——检索类事实要等 stage-2
+            // 才有值（doc_count 在无检索的轨迹里恒为 0，写在这里会永远不通过）。
             acceptance: [
-              { type: "assert", expr: "doc_count >= 10", description: "至少切分出 10 个文档块" },
+              {
+                type: "tool_call_in",
+                tools: ["chunk", "embed", "index"],
+                description: "只使用切分 / 向量化 / 入库类工具",
+              },
               { type: "latency_lt", maxMs: 5000, description: "入库耗时 < 5s" },
             ],
           },
@@ -63,7 +69,11 @@ export function generateBundle(input: GenerationInput, projectId?: string): Cont
             weight: 0.4,
             acceptance: [
               { type: "tool_call_in", tools: ["embed"], description: "仅允许 embed 工具" },
-              { type: "assert", expr: "index_size == doc_count", description: "索引完整" },
+              {
+                type: "assert",
+                expr: "success_rate >= 0.9",
+                description: "索引过程无失败调用（工具调用成功率 ≥ 0.9）",
+              },
             ],
           },
           {
@@ -98,7 +108,11 @@ export function generateBundle(input: GenerationInput, projectId?: string): Cont
             depends_on: ["task-4"],
             weight: 0.5,
             acceptance: [
-              { type: "assert", expr: "cited_doc_ids 全部来自检索结果", description: "引用忠于检索" },
+              {
+                type: "assert",
+                expr: "cited_doc_ids ⊆ retrieval_doc_ids",
+                description: "引用忠于检索：答案引用的每个文档都出自检索结果",
+              },
             ],
           },
         ],

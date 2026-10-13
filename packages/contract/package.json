@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@cegueira/llm": "workspace:*",
-    "@cegueira/rag": "workspace:*"
+    "@cegueira/rag": "workspace:*",
+    "@cegueira/trace": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

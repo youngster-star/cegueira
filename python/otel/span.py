@@ -37,8 +37,31 @@ class Span:
             raise ValueError(f"未知 span kind: {self.kind}")
 
     def end(self, status: str = "ok") -> "Span":
+        # 幂等：重复 end 不得改写结束时间，也不得再发射一条协议 span。
+        # 用户可能显式 `span.end()` 后，`trace_span` 上下文退出时又 end 一次；
+        # 非幂等会让同一 span 发两遍——trace.json 里出现重复的 span id，
+        # 而加载器/回放比对会以它为准，表现为「步数或延迟凭空翻倍」。
+        if self.end_ns is not None:
+            return self
         self.end_ns = time.time_ns()
         self.status = status
+        # 协议模式下把 span 回传给 CLI（见 python/replay/protocol.py）。
+        # 未启用时 emit 静默返回 False —— 现有测试不设 CEG_PROTOCOL，
+        # 因此这里对它们完全无副作用。
+        #
+        # 延迟导入：otel 是零依赖的叶子模块，顶层 import protocol 会让
+        # `from python.otel import ...` 连带拉起 replay 包。
+        from ..replay import protocol
+
+        protocol.emit_span(
+            span_id=self.span_id,
+            name=self.name,
+            kind=self.kind,
+            start_ms=self.start_ns / 1e6,
+            duration_ms=self.duration_ms if self.duration_ms is not None else 0.0,
+            parent_id=self.parent_span_id,
+            attributes=self.attributes,
+        )
         return self
 
     def set_attribute(self, key: str, value) -> "Span":

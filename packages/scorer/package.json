@@ -10,6 +10,7 @@
     "test": "node --test \"dist/*.test.js\""
   },
   "dependencies": {
+    "@cegueira/contract": "workspace:*",
     "@cegueira/llm": "workspace:*",
     "@cegueira/trace": "workspace:*"
   },

@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@cegueira/contract": "workspace:*",
-    "@cegueira/scorer": "workspace:*"
+    "@cegueira/scorer": "workspace:*",
+    "@cegueira/trace": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

@@ -18,6 +18,7 @@ from pathlib import Path
 
 import yaml
 
+from . import protocol
 from .fingerprint import fingerprint
 
 SCHEMA_VERSION = "1.0"
@@ -65,9 +66,18 @@ class MockHttp:
         headers: dict[str, str] | None = None,
     ) -> bytes:
         """统一入口：录制走真实网络，回放走桩（不触网）。"""
-        if self.mode == "record":
-            return self._record(url, body, method, headers)
-        return self._replay(url, body, method)
+        # source=dep：这是「外部依赖调用」，不是 Agent 声明的工具。
+        # 两者必须分开计量——一次 retrieve() 内部可能打 3 个外部调用，
+        # 但用户眼里那是一步（见 protocol.py 的说明）。
+        with protocol.timed_tool(
+            "http.fetch", {"url": url, "method": method.upper()}, source=protocol.SOURCE_DEP
+        ) as ctx:
+            if self.mode == "record":
+                result = self._record(url, body, method, headers)
+            else:
+                result = self._replay(url, body, method)
+            ctx.result = result.decode("utf-8", errors="replace")
+            return result
 
     # ---- 内部 ----
 
@@ -126,9 +136,15 @@ class MockDB:
 
     def execute(self, sql: str, params: tuple = ()) -> list[tuple]:
         """统一入口：录制真实执行并记录读结果；回放读结果走桩。"""
-        if self.mode == "record":
-            return self._record(sql, params)
-        return self._replay(sql, params)
+        with protocol.timed_tool(
+            "db.execute", {"sql": sql, "params": list(params)}, source=protocol.SOURCE_DEP
+        ) as ctx:
+            if self.mode == "record":
+                rows = self._record(sql, params)
+            else:
+                rows = self._replay(sql, params)
+            ctx.result = {"row_count": len(rows)}
+            return rows
 
     # ---- 内部 ----
 
@@ -195,10 +211,20 @@ class MockFile:
         return open(self.resolve(path), mode, *args, **kwargs)
 
     def read_text(self, path: str | Path, **kwargs) -> str:
-        return self.resolve(path).read_text(encoding="utf-8", **kwargs)
+        with protocol.timed_tool(
+            "file.read_text", {"path": str(path)}, source=protocol.SOURCE_DEP
+        ) as ctx:
+            text = self.resolve(path).read_text(encoding="utf-8", **kwargs)
+            ctx.result = {"chars": len(text)}
+            return text
 
     def write_text(self, path: str | Path, content: str, **kwargs) -> int:
-        return self.resolve(path).write_text(content, encoding="utf-8", **kwargs)
+        with protocol.timed_tool(
+            "file.write_text", {"path": str(path)}, source=protocol.SOURCE_DEP
+        ) as ctx:
+            written = self.resolve(path).write_text(content, encoding="utf-8", **kwargs)
+            ctx.result = {"chars": written}
+            return written
 
 
 class MockRegistry:

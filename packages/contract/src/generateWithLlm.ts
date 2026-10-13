@@ -5,6 +5,7 @@
  * 确定性部分（projectMd、checks、gates、schema）由代码补全，降低 LLM
  * 产出非法契约的概率。生成后经 selfCheck 校验，失败降级回模板生成器。
  */
+import { FACT_TYPES, type ExprType } from "@cegueira/trace";
 import type { LlmProvider } from "@cegueira/llm";
 import { generateBundle, type GenerationInput } from "./generate.js";
 import { selfCheck } from "./selfcheck.js";
@@ -21,13 +22,35 @@ import {
   type Stage,
 } from "./types.js";
 
+/** 事实类型的中文说法，仅用于提示词。 */
+const TYPE_HINTS: Record<ExprType, string> = {
+  number: "数字",
+  string: "字符串",
+  boolean: "布尔值",
+  string_array: "字符串数组",
+};
+
+/**
+ * 由 `FACT_TYPES` 生成词汇表清单。
+ *
+ * **必须动态生成，不能手抄一份**：手抄的清单会在词汇表增删时悄悄过期，
+ * 而过期的后果不是报错，是 LLM 生成的每条 assert 都过不了 selfCheck、
+ * 整份契约静默降级回模板——用户看到的是「LLM 好像没起作用」，
+ * 真实原因却藏在词汇表里。动态生成让漂移在编译期就不可能发生。
+ */
+function factVocabularyHint(): string {
+  return Object.entries(FACT_TYPES)
+    .map(([name, t]) => `${name}(${TYPE_HINTS[t]})`)
+    .join("、");
+}
+
 const SYSTEM_PROMPT =
   "你是 Cegueira 的契约生成器。根据用户的项目方向与技能自评，生成一份结构化开发契约。" +
   "只输出一个 JSON 对象，不要输出任何其他文字、注释或 markdown 代码块。" +
   "JSON 结构严格遵循：\n" +
   "{\n" +
   '  "title": "项目标题",\n' +
-  '  "stages": [ { "id": "stage-1", "name": "阶段名", "tasks": [ { "id": "task-1", "name": "任务名", "depends_on": ["task-0"], "weight": 0.5, "acceptance": [ {"type":"assert","expr":"布尔表达式","description":"说明"} ] } ] } ],\n' +
+  '  "stages": [ { "id": "stage-1", "name": "阶段名", "tasks": [ { "id": "task-1", "name": "任务名", "depends_on": ["task-0"], "weight": 0.5, "acceptance": [ {"type":"assert","expr":"cited_doc_ids ⊆ retrieval_doc_ids","description":"引用忠于检索"} ] } ] } ],\n' +
   '  "rubrics": [ { "id": "clarity", "prompt": "评审维度描述" } ],\n' +
   '  "tests": [ { "id": "test-basic", "prompt": "测试题目", "expected_outcome": "期望结果", "data_flow_assertions": [{"source":"retrieval","field":"answer.cited_doc_ids"}], "splits": "public", "rewrites": ["改写1"] } ]\n' +
   "}\n" +
@@ -36,7 +59,14 @@ const SYSTEM_PROMPT =
   '- acceptance 的 type 只能是 assert / tool_call_in / no_loop / latency_lt 四者之一（tool_call_in 需带 tools 数组，latency_lt 需带 maxMs）\n' +
   "- 同一阶段内所有任务的 weight 之和必须为 1\n" +
   "- 2–3 个 rubric 评审维度\n" +
-  "- 至少 2 个测试，其中一个 splits 为 holdout";
+  "- 至少 2 个测试，其中一个 splits 为 holdout\n" +
+  "assert 的 expr 是**受限布尔表达式**，会被逐字解析，因此：\n" +
+  `  · 只能引用这些标识符（括号内是类型）：${factVocabularyHint()}\n` +
+  "  · 可用运算符：== != > < >= <= && || ! ⊆(子集) ⊇(超集) ∈(属于) ∉(不属于)\n" +
+  "  · 集合（字符串数组）只能用 ⊆ ⊇ ∈ ∉ == != 比较，数字只能用 == != > < >= <=\n" +
+  "  · 整个 expr 的最终结果必须是布尔值\n" +
+  "  · 禁止中文自然语言、函数调用、成员访问（如 a.b）、链式比较（如 1 < a < 2）\n" +
+  "  · 正确示例：cited_doc_ids ⊆ retrieval_doc_ids；错误示例：cited_doc_ids 全部来自检索结果";
 
 /** LLM 输出的可定制部分（不含 projectMd/checks/gates/schema）。 */
 interface LlmContractDraft {

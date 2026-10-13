@@ -6,6 +6,7 @@ import {
   generateBundleWithLlm,
   parseLlmDraft,
 } from "./generateWithLlm.js";
+import { selfCheck } from "./selfcheck.js";
 
 function mockProvider(content: string): LlmProvider {
   return {
@@ -158,7 +159,7 @@ test("sanitizeAcceptance：过滤非法 type（经 LLM 生成链路）", async (
             depends_on: [],
             weight: 1,
             acceptance: [
-              { type: "assert", expr: "x > 1" },
+              { type: "assert", expr: "doc_count >= 1" },
               { type: "unknown_type", expr: "bad" },
               { type: "tool_call_in", tools: ["a"] },
             ],
@@ -177,4 +178,39 @@ test("sanitizeAcceptance：过滤非法 type（经 LLM 生成链路）", async (
   const acceptance = bundle.contract.stages[0].tasks[0].acceptance;
   assert.equal(acceptance.length, 2);
   assert.deepEqual(acceptance.map((a) => a.type), ["assert", "tool_call_in"]);
+  // draft 的 title 被采用，证明走的是 LLM 分支而非模板降级
+  assert.equal(bundle.contract.title, "t");
+});
+
+test("LLM 产出不可求值的 assert 时整份降级回模板，不静默留下坏断言", async () => {
+  /**
+   * 这是收紧校验器后新增的安全网：LLM 完全可能写出语法合法但语义不可求值的
+   * 表达式（这里用中文句子）。若不降级，坏断言会一路走到评分阶段才炸——
+   * 那时用户已经跑完录制与回放，代价大得多。
+   */
+  const bad = JSON.stringify({
+    title: "t",
+    stages: [
+      {
+        id: "s1",
+        name: "阶段",
+        tasks: [
+          {
+            id: "t1",
+            name: "任务",
+            depends_on: [],
+            weight: 1,
+            acceptance: [{ type: "assert", expr: "cited_doc_ids 全部来自检索结果" }],
+          },
+        ],
+      },
+    ],
+    rubrics: [{ id: "r1", prompt: "p" }],
+    tests: [{ id: "t-b", prompt: "p", expected_outcome: "x", data_flow_assertions: [], splits: "public", rewrites: [] }],
+  });
+  const bundle = await generateBundleWithLlm(mockProvider(bad), { direction: "测试" });
+  // 降级后标题回到模板的走向名，draft 的 "t" 未被采用
+  assert.equal(bundle.contract.title, "测试");
+  // 且降级产物本身必须通过自检——否则「降级」只是换了个坏法
+  assert.equal(selfCheck(bundle).ok, true);
 });

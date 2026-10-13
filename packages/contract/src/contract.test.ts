@@ -29,13 +29,36 @@ test("generateWithSelfCheck 首次通过且不降级", () => {
 });
 
 test("acceptance 可构造性判定", () => {
-  assert.equal(isExecutableAcceptance({ type: "assert", expr: "a >= 1" }).ok, true);
+  assert.equal(isExecutableAcceptance({ type: "assert", expr: "doc_count >= 1" }).ok, true);
   assert.equal(isExecutableAcceptance({ type: "assert" }).ok, false);
   assert.equal(isExecutableAcceptance({ type: "tool_call_in", tools: ["x"] }).ok, true);
   assert.equal(isExecutableAcceptance({ type: "tool_call_in", tools: [] }).ok, false);
   assert.equal(isExecutableAcceptance({ type: "no_loop" }).ok, true);
   assert.equal(isExecutableAcceptance({ type: "latency_lt", maxMs: 100 }).ok, true);
   assert.equal(isExecutableAcceptance({ type: "latency_lt", maxMs: 0 }).ok, false);
+});
+
+test("acceptance 可构造性判定：表达式必须真可求值（PRD §6.3）", () => {
+  /** 取失败原因，顺带断言确实失败了。 */
+  const why = (expr: string): string => {
+    const r = isExecutableAcceptance({ type: "assert", expr });
+    assert.equal(r.ok, false, `期望判为不可求值，实际通过：${expr}`);
+    return (r as { ok: false; reason: string }).reason;
+  };
+
+  // 自然语言句子：旧校验只判断「非空字符串」时能通过，评分时永远无法求值
+  assert.match(why("cited_doc_ids 全部来自检索结果"), /不可求值/);
+  // 不存在的标识符：旧模板里真实出现过（index_size）
+  assert.match(why("index_size == doc_count"), /未识别的标识符 index_size/);
+  // 类型不符：语法与标识符都合法，只在求值时才炸
+  assert.match(why("doc_count ⊆ cited_doc_ids"), /必须是字符串数组/);
+  // 漏写比较符
+  assert.match(why("doc_count"), /顶层结果必须是布尔值/);
+
+  // 词汇表内且类型自洽的表达式必须通过
+  assert.equal(isExecutableAcceptance({ type: "assert", expr: "cited_doc_ids ⊆ retrieval_doc_ids" }).ok, true);
+  assert.equal(isExecutableAcceptance({ type: "assert", expr: "has_retrieval && retrieval_hit_rate >= 0.9" }).ok, true);
+  assert.equal(isExecutableAcceptance({ type: "assert", expr: "!answer_has_citation" }).ok, true);
 });
 
 test("validateContract 拒绝 weight 未归一化", () => {

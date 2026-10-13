@@ -35,7 +35,17 @@ export interface RetrievalCall {
 /** HTTP 请求-响应对（http.yaml 条目，按请求指纹存储）。 */
 export interface HttpExchange {
   fingerprint: string;
-  request: { method: string; path: string; body: string };
+  request: {
+    method: string;
+    path: string;
+    body: string;
+    /**
+     * 请求目标主机。**可选**：新一代录制（RecordingSession.add_http）显式记录，
+     * 旧版扁平录制（recorder.Recording）没记，回放时靠 ReplayerHandler 里隐含的
+     * LOGICAL_HOST 兜底。评分不读该字段，保留它是为了让录制产物无损。
+     */
+    host?: string;
+  };
   response: { status: number; body: string };
 }
 
