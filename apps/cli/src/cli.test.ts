@@ -641,6 +641,33 @@ test("recordCommand：无法启动子进程时报出解释器路径", () => {
   );
 });
 
+test("recordCommand：--evalset 透传并渲染逐 case 摘要", () => {
+  let captured: string[] = [];
+  const fake = (_cmd: string, args: string[]): SpawnResult => {
+    captured = args;
+    return {
+      status: 0,
+      stdout: JSON.stringify({
+        run_id: "r",
+        run_dir: "/runs/1",
+        cases: 2,
+        ran_case_ids: ["c1"],
+        failed_case_ids: ["c2"],
+      }),
+      stderr: "",
+    };
+  };
+  const report = recordCommand(
+    { agentDir: "/a", runDir: "/runs/1", python: "/py", repoRoot: "/repo", evalset: "/e.json" },
+    fake,
+  );
+  const idx = captured.indexOf("--evalset");
+  assert.ok(idx >= 0);
+  assert.equal(captured[idx + 1], "/e.json");
+  assert.ok(report.includes("case=2 成功=1 失败=1"));
+  assert.ok(report.includes("失败 case"));
+});
+
 // ---- ceg grade：契约 + 录制 → 评分报告 ----
 
 const GRADE_CONTRACT: Contract = {
@@ -882,6 +909,72 @@ test("grade --evalset：干净轨迹未被判作弊", () => {
     const report = gradeCommand({ contractPath, runDir, evalsetPath });
     assert.ok(report.includes("防作弊：未检出"));
     assert.ok(!report.includes("检出作弊"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function writeCaseRun(
+  baseDir: string,
+  cases: { id: string; status: string }[],
+  ranIds: string[],
+  trace: AgentTrace,
+): { contractPath: string; runDir: string } {
+  const contractPath = join(baseDir, "contract.json");
+  writeFileSync(contractPath, JSON.stringify(GRADE_CONTRACT));
+  const runDir = join(baseDir, "run");
+  for (const c of cases) {
+    const cd = join(runDir, c.id);
+    mkdirSync(cd, { recursive: true });
+    writeFileSync(
+      join(cd, "manifest.json"),
+      JSON.stringify({ schema: "1.0", run_id: `r-${c.id}`, trace }),
+    );
+  }
+  writeFileSync(
+    join(runDir, "cases.json"),
+    JSON.stringify({
+      schema: "1.0",
+      run_id: "r",
+      cases: cases.map((c) => ({ id: c.id, status: c.status, dir: c.id })),
+      ran_case_ids: ranIds,
+    }),
+  );
+  return { contractPath, runDir };
+}
+
+test("grade：逐 case 录制用真实 ran_case_ids 判定留出集完整", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeCaseRun(
+      dir,
+      [{ id: "c1", status: "ok" }, { id: "c2", status: "ok" }],
+      ["c1", "c2"],
+      healthyTrace(),
+    );
+    const evalsetPath = writeEvalset(dir, CHEAT_EVALSET);
+    const report = gradeCommand({ contractPath, runDir, evalsetPath });
+    assert.ok(report.includes("逐 case 录制"));
+    assert.ok(report.includes("评分基于 case c1"));
+    assert.ok(report.includes("防作弊：未检出"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("grade：cases.json 显示留出集缺失 → 检出作弊", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeCaseRun(
+      dir,
+      [{ id: "c1", status: "ok" }, { id: "c2", status: "failed" }],
+      ["c1"],
+      healthyTrace(),
+    );
+    const evalsetPath = writeEvalset(dir, CHEAT_EVALSET);
+    const report = gradeCommand({ contractPath, runDir, evalsetPath });
+    assert.ok(report.includes("检出作弊"));
+    assert.ok(report.includes("缺 c2"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

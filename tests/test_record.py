@@ -29,7 +29,9 @@ from python.runtime import cli  # noqa: E402
 from python.runtime.record import (  # noqa: E402
     RecordError,
     build_child_env,
+    load_evalset,
     record_agent,
+    record_cases,
     repo_root,
 )
 
@@ -214,6 +216,92 @@ def test_cli_record_prints_json_summary():
     assert summary["http"] == 1
     assert summary["spans"] == 3
     assert summary["has_result"] is True
+
+
+# 逐 case 录制用的临时 Agent：把 CEG_CASE_PROMPT 回显进 final_answer，
+# 且当 prompt 为 "boom" 时故意非零退出（验证单 case 失败不中断整体）。
+PER_CASE_AGENT_SOURCE = '''\
+import json
+import os
+import sys
+
+sys.path.insert(0, {root!r})
+
+from python.otel.collector import TraceCollector, trace_span
+from python.otel.span import LLM
+
+prompt = os.environ.get("CEG_CASE_PROMPT", "")
+if prompt == "boom":
+    sys.stderr.write("故意失败\\n")
+    sys.exit(2)
+
+with trace_span(TraceCollector(trace_id="t"), "chat", LLM, prompt_tokens=1, completion_tokens=1):
+    pass
+
+sys.stdout.write(json.dumps({{
+    "type": "trace",
+    "final_answer": {{"text": prompt, "cited_doc_ids": []}},
+}}) + "\\n")
+sys.stdout.flush()
+'''
+
+
+def test_load_evalset_validation():
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="ceg-evalset-"))
+    p = tmp / "evalset.json"
+    p.write_text(
+        json.dumps({"tests": [{"id": "c1", "prompt": "问题一"}]}), encoding="utf-8"
+    )
+    assert load_evalset(p) == [{"id": "c1", "prompt": "问题一"}]
+
+    p.write_text(json.dumps({"tests": []}), encoding="utf-8")
+    try:
+        load_evalset(p)
+        assert False, "空 tests 应报错"
+    except RecordError:
+        pass
+
+
+def test_record_cases_runs_each_and_writes_index():
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="ceg-cases-"))
+    agent_dir = tmp / "agent"
+    agent_dir.mkdir()
+    (agent_dir / "main.py").write_text(
+        PER_CASE_AGENT_SOURCE.format(root=str(ROOT)), encoding="utf-8"
+    )
+    cases = [{"id": "c1", "prompt": "问题一"}, {"id": "c2", "prompt": "问题二"}]
+    index = record_cases(agent_dir, tmp / "run", cases, python=sys.executable, timeout=30)
+
+    assert index["ran_case_ids"] == ["c1", "c2"]
+    # 每个 case 一份三件套，且 final_answer 反映了该 case 的 prompt（逐 case 生效）
+    for cid, prompt in [("c1", "问题一"), ("c2", "问题二")]:
+        man = json.loads((tmp / "run" / cid / "manifest.json").read_text(encoding="utf-8"))
+        assert man["trace"]["finalAnswer"]["text"] == prompt
+    idx = json.loads((tmp / "run" / "cases.json").read_text(encoding="utf-8"))
+    assert idx["ran_case_ids"] == ["c1", "c2"]
+
+
+def test_record_cases_continues_after_case_failure():
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="ceg-cases-"))
+    agent_dir = tmp / "agent"
+    agent_dir.mkdir()
+    (agent_dir / "main.py").write_text(
+        PER_CASE_AGENT_SOURCE.format(root=str(ROOT)), encoding="utf-8"
+    )
+    cases = [{"id": "c1", "prompt": "ok"}, {"id": "c2", "prompt": "boom"}]
+    index = record_cases(agent_dir, tmp / "run", cases, python=sys.executable, timeout=30)
+
+    # 失败 case 不中断整体：c1 成功、c2 记为 failed
+    assert index["ran_case_ids"] == ["c1"]
+    status = {c["id"]: c["status"] for c in index["cases"]}
+    assert status == {"c1": "ok", "c2": "failed"}
+    assert "error" in next(c for c in index["cases"] if c["id"] == "c2")
 
 
 def main():

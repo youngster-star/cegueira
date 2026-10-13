@@ -127,11 +127,11 @@ export function toEvalCases(evalset: EvalSet): EvalCase[] {
   return evalset.tests.map((t: EvalTest) => ({
     id: t.id,
     prompt: t.prompt,
-    expectedOutcome: t.expected_outcome,
+    expectedOutcome: t.expected_outcome ?? "",
     // 契约里 source 是宽 string，防作弊要求 "retrieval" | "tool"（契约校验保证取值）。
-    dataFlowAssertions: t.data_flow_assertions as EvalCase["dataFlowAssertions"],
-    split: t.splits,
-    rewrites: t.rewrites,
+    dataFlowAssertions: (t.data_flow_assertions ?? []) as EvalCase["dataFlowAssertions"],
+    split: t.splits ?? "public",
+    rewrites: t.rewrites ?? [],
   }));
 }
 
@@ -146,6 +146,13 @@ export function renderAntiCheat(report: AntiCheatReport): string[] {
   ];
 }
 
+/** cases.json 索引（逐 case 录制产出）。 */
+export interface CasesIndex {
+  run_id: string;
+  cases: { id: string; status: string; dir: string; error?: string }[];
+  ran_case_ids: string[];
+}
+
 export interface GradeOptions {
   contractPath: string;
   runDir: string;
@@ -155,20 +162,40 @@ export interface GradeOptions {
   systemPrompt?: string;
   /** evalset.json 路径；提供则跑四道防作弊。 */
   evalsetPath?: string;
-  /** 录制实际覆盖的 case id；缺省视为覆盖全部（单次录制的近似口径）。 */
+  /** 录制实际覆盖的 case id；缺省取 cases.json 的 ran_case_ids，再缺省视为覆盖全部。 */
   ranCases?: string[];
+  /** 逐 case 录制目录下，指定用哪个 case 的轨迹评分（缺省取第一个成功的 case）。 */
+  caseId?: string;
 }
 
 /** 评分报告文本。 */
 export function gradeCommand(opts: GradeOptions): string {
-  const { contractPath, runDir, securityJson, storeDir, systemPrompt } = opts;
+  const { contractPath, securityJson, storeDir, systemPrompt } = opts;
   const contract = JSON.parse(readFileSync(contractPath, "utf8")) as Contract;
   const check = validateContract(contract);
   if (!check.ok) {
     throw new Error(`契约校验未通过：${check.reason}`);
   }
 
-  const trace = loadTrace(runDir);
+  // 逐 case 录制目录：读 cases.json，解析出真实覆盖的 case 与用于评分的 case 轨迹。
+  const casesIndexPath = join(opts.runDir, "cases.json");
+  let effectiveRunDir = opts.runDir;
+  let casesIndex: CasesIndex | undefined;
+  let scoredCaseId: string | undefined;
+  if (existsSync(casesIndexPath)) {
+    casesIndex = JSON.parse(readFileSync(casesIndexPath, "utf8")) as CasesIndex;
+    scoredCaseId = opts.caseId ?? casesIndex.cases.find((c) => c.status === "ok")?.id;
+    if (scoredCaseId === undefined) {
+      throw new Error(`cases.json 中没有任何成功 case，无法评分（全部失败）`);
+    }
+    const entry = casesIndex.cases.find((c) => c.id === scoredCaseId);
+    if (entry === undefined) {
+      throw new Error(`cases.json 中无 case "${scoredCaseId}"`);
+    }
+    effectiveRunDir = join(opts.runDir, entry.dir);
+  }
+
+  const trace = loadTrace(effectiveRunDir);
   const override = securityJson
     ? (JSON.parse(securityJson) as Partial<SecurityChecks>)
     : undefined;
@@ -185,7 +212,9 @@ export function gradeCommand(opts: GradeOptions): string {
   if (opts.evalsetPath !== undefined) {
     const evalset = JSON.parse(readFileSync(opts.evalsetPath, "utf8")) as EvalSet;
     const evalCases = toEvalCases(evalset);
-    const runCaseIds = opts.ranCases ?? evalCases.map((c) => c.id);
+    // runCaseIds 优先级：显式 --ran-cases > cases.json（逐 case 录制的观测事实）> 视为全覆盖。
+    const runCaseIds =
+      opts.ranCases ?? casesIndex?.ran_case_ids ?? evalCases.map((c) => c.id);
     antiCheat = detectCheat({ trace, runCaseIds, evalCases });
   }
 
@@ -210,6 +239,12 @@ export function gradeCommand(opts: GradeOptions): string {
   });
 
   const lines = [
+    ...(casesIndex
+      ? [
+          `逐 case 录制：共 ${casesIndex.cases.length} case，成功 ${casesIndex.ran_case_ids.length}；` +
+            `本次评分基于 case ${scoredCaseId}（其余 case 轨迹已落盘，多 case 聚合评分待后续）`,
+        ]
+      : []),
     `最终得分（预览）：${result.finalScore}`,
     `S_core：${result.sCore.toFixed(4)}`,
     `维度：outcome=${d.outcome.toFixed(3)} process=${d.process.toFixed(3)} semantic=${d.semantic.toFixed(3)} rubric=${d.rubric.toFixed(3)}`,

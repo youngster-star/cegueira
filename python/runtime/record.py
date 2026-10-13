@@ -32,18 +32,23 @@ import json
 import os
 import subprocess
 import threading
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..replay.manifest import build_manifest, write_manifest
 from ..replay.protocol import TYPE_SPAN, TYPE_TOOL_IO, TYPE_TRACE
 from ..replay.recorder import DEFAULT_UPSTREAM, serve_recorder
-from ..replay.session import RecordingSession
+from ..replay.session import SCHEMA_VERSION, RecordingSession
 from .ensure import ensure_venv, venv_python
 
 # 默认 Agent 入口与产出文件名
 DEFAULT_ENTRY = "main.py"
 RESULT_FILE = "result.json"
+# 逐 case 录制的索引文件名与传给 Agent 的约定环境变量
+CASES_FILE = "cases.json"
+ENV_CASE_ID = "CEG_CASE_ID"
+ENV_CASE_PROMPT = "CEG_CASE_PROMPT"
 
 
 class RecordError(RuntimeError):
@@ -291,3 +296,117 @@ def record_agent(
         )
     finally:
         server.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# 逐 case 录制（P2 防作弊「留出集」防线的数据来源）
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CaseRecord:
+    """单个 evalset case 的录制结果摘要。"""
+
+    id: str
+    status: str  # "ok" | "failed"
+    result: dict | None = None
+    error: str | None = None
+
+
+def load_evalset(path: str | os.PathLike) -> list[dict]:
+    """读取 evalset.json，返回 `[{"id", "prompt"}]`。
+
+    只依赖 id 与 prompt 两个字段——它们是「逐 case 运行」与「改写/硬编码检测」
+    的最小必需信息，其余（expected_outcome / 引用断言）由评分层消费。
+    """
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    tests = payload.get("tests") if isinstance(payload, dict) else None
+    if not isinstance(tests, list) or not tests:
+        raise RecordError("evalset 需含非空 tests 数组")
+    cases: list[dict] = []
+    for i, t in enumerate(tests):
+        if not isinstance(t, dict):
+            raise RecordError(f"evalset.tests[{i}] 应为对象")
+        cid = t.get("id")
+        prompt = t.get("prompt")
+        if not isinstance(cid, str) or not isinstance(prompt, str):
+            raise RecordError(f"evalset.tests[{i}] 需含字符串 id 与 prompt")
+        cases.append({"id": cid, "prompt": prompt})
+    return cases
+
+
+def record_cases(
+    agent_dir: str | os.PathLike,
+    out_dir: str | os.PathLike,
+    cases: list[dict],
+    *,
+    entry: str = DEFAULT_ENTRY,
+    upstream: str = DEFAULT_UPSTREAM,
+    python: str | os.PathLike | None = None,
+    env: dict[str, str] | None = None,
+    run_id: str | None = None,
+    timeout: float = 120.0,
+) -> dict:
+    """按 evalset 逐 case 运行 Agent，每 case 一份三件套，并落 `cases.json` 索引。
+
+    ## 为什么必须逐 case
+
+    防作弊第一道防线「留出集完整性」要判断**哪些 case 真的跑了**。单次录制只有
+    一份 trace，无从得知覆盖了哪些 case；只有逐 case 运行并记录，`ran_case_ids`
+    才是观测事实而非自报（这与 facts.py「绝不接受 Agent 自报数值」同源）。
+
+    ## case 输入如何传给 Agent
+
+    通过环境变量 `CEG_CASE_ID` / `CEG_CASE_PROMPT` 注入（Agent 子进程无法从
+    协议里取输入——协议是**输出**方向）。读取该变量的 Agent 即天然支持逐 case；
+    不读取的 Agent 会对每个 case 产出相同结果，索引仍如实记录。
+
+    ## 单个 case 失败不中断整体
+
+    Agent 在某个 case 上挂掉是常见情况（健壮性不足）。把它记为 `status=failed`
+    并继续跑其余 case，`ran_case_ids` 只收 `ok` 的——于是「某 case 没跑成」会
+    如实表现为留出集缺失，而不是把整次录制作废。
+    """
+    out_dir = Path(out_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    run_id = run_id or uuid.uuid4().hex
+
+    records: list[CaseRecord] = []
+    for case in cases:
+        case_dir = out_dir / case["id"]
+        case_env = dict(env or {})
+        case_env[ENV_CASE_ID] = case["id"]
+        case_env[ENV_CASE_PROMPT] = case["prompt"]
+        try:
+            res = record_agent(
+                agent_dir,
+                case_dir,
+                entry=entry,
+                upstream=upstream,
+                python=python,
+                env=case_env,
+                run_id=f"{run_id}-{case['id']}",
+                timeout=timeout,
+            )
+            records.append(CaseRecord(id=case["id"], status="ok", result=res.result))
+        except RecordError as e:
+            records.append(CaseRecord(id=case["id"], status="failed", error=str(e)))
+
+    index = {
+        "schema": SCHEMA_VERSION,
+        "run_id": run_id,
+        "cases": [
+            {
+                "id": r.id,
+                "status": r.status,
+                "dir": r.id,  # 相对 out_dir 的子目录名
+                **({"error": r.error} if r.error else {}),
+            }
+            for r in records
+        ],
+        "ran_case_ids": [r.id for r in records if r.status == "ok"],
+    }
+    (out_dir / CASES_FILE).write_text(
+        json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return index

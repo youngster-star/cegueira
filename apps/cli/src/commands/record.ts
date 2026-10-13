@@ -20,15 +20,20 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Python 侧返回的一行 JSON 摘要。 */
+/** Python 侧返回的一行 JSON 摘要（单次与逐 case 两种形状）。 */
 export interface RecordSummary {
   run_id: string;
   run_dir: string;
-  spans: number;
-  tool_io: number;
-  http: number;
-  has_result: boolean;
+  // 单次录制
+  spans?: number;
+  tool_io?: number;
+  http?: number;
+  has_result?: boolean;
   stdout_noise?: number;
+  // 逐 case 录制
+  cases?: number;
+  ran_case_ids?: string[];
+  failed_case_ids?: string[];
 }
 
 export interface RecordOptions {
@@ -36,6 +41,8 @@ export interface RecordOptions {
   runDir: string;
   entry?: string;
   upstream?: string;
+  /** evalset.json 路径；提供则逐 case 录制。 */
+  evalset?: string;
   /** 显式指定 Python 解释器；缺省自动探测。 */
   python?: string;
   /** 仓库根（`python` 包所在处）；缺省从本模块位置向上探测。 */
@@ -122,6 +129,7 @@ export function recordCommand(opts: RecordOptions, spawn: SpawnFn = defaultSpawn
   if (opts.entry) args.push("--entry", opts.entry);
   if (opts.upstream) args.push("--upstream", opts.upstream);
   if (opts.timeoutSec !== undefined) args.push("--timeout", String(opts.timeoutSec));
+  if (opts.evalset) args.push("--evalset", opts.evalset);
 
   const res = spawn(python, args, { cwd: repoRoot, encoding: "utf-8" });
   if (res.error) {
@@ -133,14 +141,23 @@ export function recordCommand(opts: RecordOptions, spawn: SpawnFn = defaultSpawn
   }
 
   const s = parseSummary(res.stdout ?? "");
-  const lines = [
-    `✓ 录制完成：${s.run_dir}`,
-    `run_id=${s.run_id}`,
-    `span=${s.spans} tool_io=${s.tool_io} http=${s.http} 最终结果=${s.has_result ? "有" : "无"}`,
-  ];
-  if (s.stdout_noise) {
-    lines.push(`⚠ stdout 有 ${s.stdout_noise} 行非协议内容（日志应写 stderr）`);
+  const lines = [`✓ 录制完成：${s.run_dir}`, `run_id=${s.run_id}`];
+
+  if (s.cases !== undefined) {
+    // 逐 case 模式
+    const ran = s.ran_case_ids ?? [];
+    const failed = s.failed_case_ids ?? [];
+    lines.push(`case=${s.cases} 成功=${ran.length} 失败=${failed.length}`);
+    if (failed.length > 0) {
+      lines.push(`⚠ 失败 case（留出集将记为缺失）：${failed.join(", ")}`);
+    }
+    lines.push("下一步：ceg grade --contract <contract.json> --run " + s.run_dir + " --evalset <evalset.json>");
+  } else {
+    lines.push(`span=${s.spans} tool_io=${s.tool_io} http=${s.http} 最终结果=${s.has_result ? "有" : "无"}`);
+    if (s.stdout_noise) {
+      lines.push(`⚠ stdout 有 ${s.stdout_noise} 行非协议内容（日志应写 stderr）`);
+    }
+    lines.push("下一步：ceg grade --contract <contract.json> --run " + s.run_dir);
   }
-  lines.push("下一步：ceg grade --contract <contract.json> --run " + s.run_dir);
   return lines.join("\n");
 }

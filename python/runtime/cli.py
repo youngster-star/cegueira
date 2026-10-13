@@ -20,10 +20,37 @@ import json
 import sys
 
 from ..replay.recorder import DEFAULT_UPSTREAM
-from .record import RecordError, record_agent
+from .record import RecordError, load_evalset, record_agent, record_cases
 
 
 def _cmd_record(args: argparse.Namespace) -> int:
+    # 逐 case 模式：按 evalset 逐条运行，落 cases.json 索引。
+    if args.evalset:
+        try:
+            cases = load_evalset(args.evalset)
+            index = record_cases(
+                agent_dir=args.agent,
+                out_dir=args.out,
+                cases=cases,
+                entry=args.entry,
+                upstream=args.upstream,
+                python=args.python,
+                timeout=args.timeout,
+            )
+        except RecordError as e:
+            print(f"[record] 失败：{e}", file=sys.stderr)
+            return 1
+        failed = [c["id"] for c in index["cases"] if c["status"] != "ok"]
+        summary = {
+            "run_id": index["run_id"],
+            "run_dir": str(args.out),
+            "cases": len(index["cases"]),
+            "ran_case_ids": index["ran_case_ids"],
+            "failed_case_ids": failed,
+        }
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+
     try:
         res = record_agent(
             agent_dir=args.agent,
@@ -68,6 +95,11 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--upstream", default=DEFAULT_UPSTREAM, help="真实 LLM 上游基址")
     rec.add_argument("--python", default=None, help="运行 Agent 的 Python（缺省用独立 venv）")
     rec.add_argument("--timeout", type=float, default=120.0, help="子进程超时秒数")
+    rec.add_argument(
+        "--evalset",
+        default=None,
+        help="evalset.json 路径；提供则按 case 逐条录制，产出 cases.json 索引",
+    )
     rec.set_defaults(func=_cmd_record)
 
     return parser
