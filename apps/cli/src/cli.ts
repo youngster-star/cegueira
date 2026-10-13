@@ -1,6 +1,7 @@
 /**
  * ceg CLI 命令分发。
  */
+import { readFileSync } from "node:fs";
 import { parseArgs } from "./args.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { gradeCommand } from "./commands/grade.js";
@@ -20,7 +21,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
 命令：
   init     生成契约五件套（--direction <方向>，默认「RAG 问答 Agent」）
   record   跑一次 Agent 并落录制产物（--agent <目录> --out <录制目录>）
-  grade    契约 + 录制目录 → 评分报告（--contract <contract.json> --run <录制目录>）
+  grade    契约 + 录制目录 → 评分报告（--contract <contract.json> --run <录制目录> [--store <目录>] [--system-prompt <文件>]）
   scan     L1 静态分析（--path <文件或目录>）
   rubric   LLM 评审 rubric 维度（--rubric <json> --artifact <文件> [--llm a,b] [--budget <tokens>] [--yes]）
   calibrate 校准报告（--labels <人工标注json>）
@@ -76,7 +77,9 @@ export async function run(argv: string[]): Promise<void> {
       const run = options.run ?? options.r;
       if (!contract) throw new Error("grade 需要 --contract <contract.json>");
       if (!run) throw new Error("grade 需要 --run <录制目录>");
-      console.log(gradeCommand(contract, run, options.security, options.store));
+      const systemPromptPath = options["system-prompt"];
+      const systemPrompt = systemPromptPath ? readFileSync(systemPromptPath, "utf8") : undefined;
+      console.log(gradeCommand(contract, run, options.security, options.store, systemPrompt));
       break;
     }
     case "history": {
