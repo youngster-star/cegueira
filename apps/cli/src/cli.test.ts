@@ -955,8 +955,44 @@ test("grade：逐 case 录制用真实 ran_case_ids 判定留出集完整", () =
     const evalsetPath = writeEvalset(dir, CHEAT_EVALSET);
     const report = gradeCommand({ contractPath, runDir, evalsetPath });
     assert.ok(report.includes("逐 case 录制"));
-    assert.ok(report.includes("评分基于 case c1"));
+    assert.ok(report.includes("case c1：outcome="));
+    assert.ok(report.includes("跨 case 聚合"));
     assert.ok(report.includes("防作弊：未检出"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("grade：跨 case 聚合 S_outcome 取 min", () => {
+  const dir = makeTmpDir();
+  try {
+    const contractPath = join(dir, "contract.json");
+    writeFileSync(contractPath, JSON.stringify(GRADE_CONTRACT));
+    const runDir = join(dir, "run");
+    const good = healthyTrace(); // cited [d1] ⊆ retrieved → outcome 1
+    const bad = healthyTrace();
+    bad.finalAnswer = { text: "回答", citedDocIds: ["dX"] }; // 引用不存在 → 该任务 0.5
+    for (const [id, tr] of [["c1", good], ["c2", bad]] as const) {
+      const cd = join(runDir, id);
+      mkdirSync(cd, { recursive: true });
+      writeFileSync(join(cd, "manifest.json"), JSON.stringify({ schema: "1.0", run_id: id, trace: tr }));
+    }
+    writeFileSync(
+      join(runDir, "cases.json"),
+      JSON.stringify({
+        schema: "1.0",
+        run_id: "r",
+        cases: [
+          { id: "c1", status: "ok", dir: "c1" },
+          { id: "c2", status: "ok", dir: "c2" },
+        ],
+        ran_case_ids: ["c1", "c2"],
+      }),
+    );
+    const report = gradeCommand({ contractPath, runDir });
+    assert.ok(report.includes("case c1：outcome=1.000"));
+    assert.ok(report.includes("case c2：outcome=0.500"));
+    assert.ok(report.includes("outcome=0.500")); // 聚合取 min
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

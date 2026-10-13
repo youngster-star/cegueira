@@ -20,15 +20,26 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { detectCheat, type AntiCheatReport, type EvalCase } from "@cegueira/antich";
+import {
+  detectCheat,
+  detectHardcoded,
+  type AntiCheatReport,
+  type EvalCase,
+} from "@cegueira/antich";
 import {
   validateContract,
   type Contract,
   type EvalSet,
   type EvalTest,
 } from "@cegueira/contract";
-import { scoreFromTrace, type SecurityChecks } from "@cegueira/scorer";
-import type { AgentTrace } from "@cegueira/trace";
+import {
+  score,
+  scoreFromTrace,
+  type OutcomeEvaluation,
+  type ScoreResult,
+  type SecurityChecks,
+} from "@cegueira/scorer";
+import type { AgentTrace, EfficiencyMetrics } from "@cegueira/trace";
 import { parseRecording } from "@cegueira/trace/load";
 import { recordScore } from "./history.js";
 
@@ -177,87 +188,161 @@ export function gradeCommand(opts: GradeOptions): string {
     throw new Error(`契约校验未通过：${check.reason}`);
   }
 
-  // 逐 case 录制目录：读 cases.json，解析出真实覆盖的 case 与用于评分的 case 轨迹。
+  // 解析参与评分的 case 轨迹：逐 case 录制（cases.json）或单次录制。
   const casesIndexPath = join(opts.runDir, "cases.json");
-  let effectiveRunDir = opts.runDir;
-  let casesIndex: CasesIndex | undefined;
-  let scoredCaseId: string | undefined;
-  if (existsSync(casesIndexPath)) {
-    casesIndex = JSON.parse(readFileSync(casesIndexPath, "utf8")) as CasesIndex;
-    scoredCaseId = opts.caseId ?? casesIndex.cases.find((c) => c.status === "ok")?.id;
-    if (scoredCaseId === undefined) {
-      throw new Error(`cases.json 中没有任何成功 case，无法评分（全部失败）`);
+  const casesIndex: CasesIndex | undefined = existsSync(casesIndexPath)
+    ? (JSON.parse(readFileSync(casesIndexPath, "utf8")) as CasesIndex)
+    : undefined;
+
+  const caseEntries: { id: string; trace: AgentTrace }[] = [];
+  if (casesIndex) {
+    const ok = casesIndex.cases.filter((c) => c.status === "ok");
+    if (ok.length === 0) {
+      throw new Error("cases.json 中没有任何成功 case，无法评分（全部失败）");
     }
-    const entry = casesIndex.cases.find((c) => c.id === scoredCaseId);
-    if (entry === undefined) {
-      throw new Error(`cases.json 中无 case "${scoredCaseId}"`);
+    const selected = opts.caseId ? ok.filter((c) => c.id === opts.caseId) : ok;
+    if (selected.length === 0) {
+      throw new Error(`cases.json 中无成功 case "${opts.caseId}"`);
     }
-    effectiveRunDir = join(opts.runDir, entry.dir);
+    for (const c of selected) {
+      caseEntries.push({ id: c.id, trace: loadTrace(join(opts.runDir, c.dir)) });
+    }
+  } else {
+    caseEntries.push({ id: "run", trace: loadTrace(opts.runDir) });
   }
 
-  const trace = loadTrace(effectiveRunDir);
+  const primaryTrace = caseEntries[0].trace;
   const override = securityJson
     ? (JSON.parse(securityJson) as Partial<SecurityChecks>)
     : undefined;
-  const security = deriveSecurity(contract, trace, override);
+  const security = deriveSecurity(contract, primaryTrace, override);
 
-  // no_prompt_leak：仅在提供系统提示词且未被 --security 覆盖时自动判定。
-  const leak = systemPrompt !== undefined ? detectPromptLeak(systemPrompt, trace) : undefined;
-  if (leak !== undefined && override?.no_prompt_leak === undefined) {
-    security.no_prompt_leak = !leak.leaked;
+  // no_prompt_leak：逐 case 扫描，任一 case 泄漏即判泄漏。
+  const leak =
+    systemPrompt === undefined
+      ? undefined
+      : {
+          sources: [
+            ...new Set(
+              caseEntries.flatMap((e) => detectPromptLeak(systemPrompt, e.trace).sources),
+            ),
+          ],
+        };
+  if (systemPrompt !== undefined && override?.no_prompt_leak === undefined) {
+    security.no_prompt_leak = (leak?.sources.length ?? 0) === 0;
   }
 
-  // 四道防作弊：需 evalset；runCaseIds 缺省视为覆盖全部 case（单次录制的近似口径）。
+  // 四道防作弊：需 evalset；runCaseIds 优先级 = 显式 > cases.json（观测事实）> 视为全覆盖。
   let antiCheat: AntiCheatReport | undefined;
   if (opts.evalsetPath !== undefined) {
     const evalset = JSON.parse(readFileSync(opts.evalsetPath, "utf8")) as EvalSet;
     const evalCases = toEvalCases(evalset);
-    // runCaseIds 优先级：显式 --ran-cases > cases.json（逐 case 录制的观测事实）> 视为全覆盖。
     const runCaseIds =
       opts.ranCases ?? casesIndex?.ran_case_ids ?? evalCases.map((c) => c.id);
-    antiCheat = detectCheat({ trace, runCaseIds, evalCases });
+    antiCheat = detectCheat({ trace: primaryTrace, runCaseIds, evalCases });
+    // 多 case：逐 case 用「该 case 答案 vs 该 case 题目」复查硬编码，覆盖单 trace 口径。
+    if (caseEntries.length > 1) {
+      const hits: string[] = [];
+      for (const e of caseEntries) {
+        const ec = evalCases.find((c) => c.id === e.id);
+        const text = e.trace.finalAnswer?.text;
+        if (ec && text && detectHardcoded(ec.prompt, text)) hits.push(e.id);
+      }
+      if (hits.length > 0 && !antiCheat.rewriteSuspicious) {
+        antiCheat.rewriteSuspicious = true;
+        antiCheat.reasons.push(`逐 case 硬编码嫌疑：${hits.join(", ")}`);
+        antiCheat.cheated = true;
+      }
+    }
   }
 
-  const { result, outcome, metrics } = scoreFromTrace(contract, trace, { security });
+  // 逐 case 评分 → 聚合（多 case 时 S_outcome 取 min，过程分按步数加权）。
+  const perCase = caseEntries.map((e) => ({
+    id: e.id,
+    ts: scoreFromTrace(contract, e.trace, { security }),
+  }));
+  const single = perCase.length === 1;
+  let result: ScoreResult;
+  let outcome: OutcomeEvaluation;
+  let metrics: EfficiencyMetrics;
+  if (single) {
+    ({ result, outcome, metrics } = perCase[0].ts);
+  } else {
+    const totalSteps = perCase.reduce((a, p) => a + p.ts.metrics.steps, 0);
+    const process =
+      totalSteps > 0
+        ? perCase.reduce((a, p) => a + p.ts.result.dimensions.process * p.ts.metrics.steps, 0) /
+          totalSteps
+        : perCase.reduce((a, p) => a + p.ts.result.dimensions.process, 0) / perCase.length;
+    const semantic =
+      perCase.reduce((a, p) => a + p.ts.result.dimensions.semantic, 0) / perCase.length;
+    result = score({
+      outcomeSamples: perCase.map((p) => p.ts.outcome.rate),
+      process,
+      semantic,
+      security,
+    });
+    outcome = perCase[0].ts.outcome;
+    metrics = perCase[0].ts.metrics;
+  }
   const d = result.dimensions;
 
-  const taskLines = outcome.tasks.map((t) => {
-    const flag = t.result.rate >= 1 ? "✓" : "✗";
-    const bad = t.result.outcomes.filter((o) => o.unevaluable !== undefined);
-    const detail =
-      t.result.rate < 1
-        ? `  未通过: ${t.result.outcomes
-            .filter((o) => !o.passed && o.unevaluable === undefined)
-            .map((o) => o.spec)
-            .join(" | ") || "（无）"}`
-        : "";
-    const uneval =
-      bad.length > 0
-        ? `  ⚠ 契约缺陷 ${bad.length} 条（不计入分母）: ${bad.map((o) => o.unevaluable).join("; ")}`
-        : "";
-    return `  ${flag} [${t.stageId}/${t.taskId}] ${t.taskName} 通过率=${t.result.rate.toFixed(2)}（${t.result.passed}/${t.result.evaluable}）${detail}${uneval}`;
-  });
-
-  const lines = [
-    ...(casesIndex
-      ? [
-          `逐 case 录制：共 ${casesIndex.cases.length} case，成功 ${casesIndex.ran_case_ids.length}；` +
-            `本次评分基于 case ${scoredCaseId}（其余 case 轨迹已落盘，多 case 聚合评分待后续）`,
-        ]
-      : []),
-    `最终得分（预览）：${result.finalScore}`,
-    `S_core：${result.sCore.toFixed(4)}`,
-    `维度：outcome=${d.outcome.toFixed(3)} process=${d.process.toFixed(3)} semantic=${d.semantic.toFixed(3)} rubric=${d.rubric.toFixed(3)}`,
+  const securityLine =
     `安全门控：${result.gates.security.passed ? "通过" : "未通过"}（白名单=${security.tool_call_whitelist ? "过" : "不过"}；` +
-      (leak === undefined
-        ? "⚠ no_prompt_leak 未接入（给 --system-prompt 才判定）；"
-        : `提示词泄漏=${security.no_prompt_leak ? "无" : `有(${leak.sources.join(",")})`}；`) +
-      "⚠ no_unauthorized_mutation 未接入，默认放行）",
-    `结果门控：${result.gates.outcome.passed ? "通过" : "驳回"}（outcome min=${result.gates.outcome.min.toFixed(3)}）`,
-    `过程指标：steps=${metrics.steps} 工具选择=${metrics.toolChoiceAccuracy.toFixed(3)} 参数=${metrics.paramCorrectness.toFixed(3)} 成功率=${metrics.successRate.toFixed(3)} 冗余=${metrics.stepRedundancy.toFixed(3)} 循环=${metrics.loopCount}`,
-    `验收明细：`,
-    ...taskLines,
-  ];
+    (leak === undefined
+      ? "⚠ no_prompt_leak 未接入（给 --system-prompt 才判定）；"
+      : `提示词泄漏=${security.no_prompt_leak ? "无" : `有(${leak.sources.join(",")})`}；`) +
+    "⚠ no_unauthorized_mutation 未接入，默认放行）";
+  const outcomeGateLine =
+    `结果门控：${result.gates.outcome.passed ? "通过" : "驳回"}（outcome min=${result.gates.outcome.min.toFixed(3)}）`;
+
+  const lines: string[] = [];
+  if (single) {
+    const taskLines = outcome.tasks.map((t) => {
+      const flag = t.result.rate >= 1 ? "✓" : "✗";
+      const bad = t.result.outcomes.filter((o) => o.unevaluable !== undefined);
+      const detail =
+        t.result.rate < 1
+          ? `  未通过: ${
+              t.result.outcomes
+                .filter((o) => !o.passed && o.unevaluable === undefined)
+                .map((o) => o.spec)
+                .join(" | ") || "（无）"
+            }`
+          : "";
+      const uneval =
+        bad.length > 0
+          ? `  ⚠ 契约缺陷 ${bad.length} 条（不计入分母）: ${bad.map((o) => o.unevaluable).join("; ")}`
+          : "";
+      return `  ${flag} [${t.stageId}/${t.taskId}] ${t.taskName} 通过率=${t.result.rate.toFixed(2)}（${t.result.passed}/${t.result.evaluable}）${detail}${uneval}`;
+    });
+    lines.push(
+      `最终得分（预览）：${result.finalScore}`,
+      `S_core：${result.sCore.toFixed(4)}`,
+      `维度：outcome=${d.outcome.toFixed(3)} process=${d.process.toFixed(3)} semantic=${d.semantic.toFixed(3)} rubric=${d.rubric.toFixed(3)}`,
+      securityLine,
+      outcomeGateLine,
+      `过程指标：steps=${metrics.steps} 工具选择=${metrics.toolChoiceAccuracy.toFixed(3)} 参数=${metrics.paramCorrectness.toFixed(3)} 成功率=${metrics.successRate.toFixed(3)} 冗余=${metrics.stepRedundancy.toFixed(3)} 循环=${metrics.loopCount}`,
+      `验收明细：`,
+      ...taskLines,
+    );
+  } else {
+    lines.push(
+      `逐 case 录制：共 ${casesIndex!.cases.length} case，成功 ${caseEntries.length}；跨全部成功 case 聚合（S_outcome 取 min）`,
+    );
+    for (const p of perCase) {
+      lines.push(
+        `  case ${p.id}：outcome=${p.ts.outcome.rate.toFixed(3)} process=${p.ts.result.dimensions.process.toFixed(3)} semantic=${p.ts.result.dimensions.semantic.toFixed(3)}`,
+      );
+    }
+    lines.push(
+      `最终得分（预览）：${result.finalScore}`,
+      `S_core：${result.sCore.toFixed(4)}`,
+      `维度（跨 case 聚合）：outcome=${d.outcome.toFixed(3)} process=${d.process.toFixed(3)} semantic=${d.semantic.toFixed(3)} rubric=${d.rubric.toFixed(3)}`,
+      securityLine,
+      outcomeGateLine,
+    );
+  }
 
   if (antiCheat) {
     lines.push("", ...renderAntiCheat(antiCheat));
