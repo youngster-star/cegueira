@@ -249,15 +249,28 @@ def record_agent(
         stderr_thread.start()
 
         state: dict = {"result": None, "noise": []}
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            _parse_stdout_line(line, session, state)
 
-        try:
-            returncode = proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
+        # 超时看门狗：必须在**读 stdout 之前**起。仅靠 `proc.wait(timeout)` 无法
+        # 覆盖「Agent 卡死但仍持有 stdout 管道」的情形——那样 `for line in
+        # proc.stdout` 会一直阻塞，永远走不到 proc.wait，整条录制无限挂起。
+        # 看门狗到点直接 kill 子进程，管道随之关闭，读循环得以退出。
+        timed_out = threading.Event()
+
+        def _kill_on_timeout() -> None:
+            timed_out.set()
             proc.kill()
-            proc.wait()
+
+        watchdog = threading.Timer(timeout, _kill_on_timeout)
+        watchdog.start()
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                _parse_stdout_line(line, session, state)
+            returncode = proc.wait()
+        finally:
+            watchdog.cancel()
+
+        if timed_out.is_set():
             raise RecordError(f"Agent 超时（>{timeout}s）：{agent_dir}")
 
         stderr_thread.join(timeout=5.0)

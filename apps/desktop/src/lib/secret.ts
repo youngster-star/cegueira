@@ -34,10 +34,14 @@ export async function getApiKey(provider: string): Promise<string | null> {
   return localStorage.getItem(`ceg.key.${provider}`);
 }
 
-/** 删除某供应商的 API Key。 */
+/** 删除某供应商的 API Key。删除不存在的项视为成功（与 getApiKey 的错误处理一致）。 */
 export async function deleteApiKey(provider: string): Promise<void> {
   if (isTauriRuntime()) {
-    await invoke("delete_secret", { service: SERVICE, account: provider });
+    try {
+      await invoke("delete_secret", { service: SERVICE, account: provider });
+    } catch {
+      // keyring 中无该项时 Tauri 会 reject（NoEntry）；删除的目标状态已达成。
+    }
   } else {
     localStorage.removeItem(`ceg.key.${provider}`);
   }

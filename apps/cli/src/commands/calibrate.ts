@@ -67,7 +67,14 @@ export function parseCalibrationFile(text: string): CalibrationInput {
 
   let repeatScores: number[][] | undefined;
   if (raw.repeatScores !== undefined) {
-    if (!Array.isArray(raw.repeatScores) || raw.repeatScores.some((x) => !Array.isArray(x))) {
+    if (
+      !Array.isArray(raw.repeatScores) ||
+      raw.repeatScores.some(
+        (row) =>
+          !Array.isArray(row) ||
+          row.some((v) => typeof v !== "number" || !Number.isFinite(v)),
+      )
+    ) {
       throw new Error("repeatScores 须为二维数字数组");
     }
     repeatScores = raw.repeatScores as number[][];

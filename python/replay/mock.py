@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import urllib.request
 import urllib.parse
 from pathlib import Path
@@ -39,8 +40,14 @@ def _is_ddl(sql: str) -> bool:
     return head.startswith(("CREATE", "DROP", "ALTER"))
 
 
-def _sql_fp(sql: str, params: tuple) -> str:
-    raw = f"{sql}\x00{json.dumps(list(params), ensure_ascii=False, default=str)}"
+def _sql_fp(sql: str, params) -> str:
+    # dict 型命名参数必须按「键+值」序列化：`list(params)` 只取键，
+    # 会让 {a:1} 与 {a:2} 得到同一指纹（回放静默错配）。
+    if isinstance(params, dict):
+        params_repr = json.dumps(params, sort_keys=True, ensure_ascii=False, default=str)
+    else:
+        params_repr = json.dumps(list(params), ensure_ascii=False, default=str)
+    raw = f"{sql}\x00{params_repr}"
     import hashlib
 
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -131,7 +138,10 @@ class MockDB:
         if mode not in ("record", "replay"):
             raise ValueError(f"非法 mode: {mode}")
         self.mode = mode
-        self._conn = sqlite3.connect(":memory:")
+        # check_same_thread=False + 显式锁：protocol.py 说明 MockDB 可能被 Agent
+        # 的工作线程调用，而 sqlite 连接默认禁止跨线程使用（会抛 ProgrammingError）。
+        self._conn = sqlite3.connect(":memory:", check_same_thread=False)
+        self._lock = threading.Lock()
         self._recorded: dict[str, list] = {}
 
     def execute(self, sql: str, params: tuple = ()) -> list[tuple]:
@@ -139,10 +149,11 @@ class MockDB:
         with protocol.timed_tool(
             "db.execute", {"sql": sql, "params": list(params)}, source=protocol.SOURCE_DEP
         ) as ctx:
-            if self.mode == "record":
-                rows = self._record(sql, params)
-            else:
-                rows = self._replay(sql, params)
+            with self._lock:
+                if self.mode == "record":
+                    rows = self._record(sql, params)
+                else:
+                    rows = self._replay(sql, params)
             ctx.result = {"row_count": len(rows)}
             return rows
 
@@ -198,10 +209,16 @@ class MockFile:
         统一挂在沙箱目录下。这样 POSIX 绝对路径 /etc/x、Windows 盘符
         C:\\x 均被安全映射到沙箱内，且无法向上逃逸。
         """
+        # 除根/盘符/`.`/`..` 外，还须丢弃**含路径分隔符的片段**：Windows 上
+        # UNC 路径 `\\server\share\x` 的 parts 首段是 `\\server\share\`，
+        # 不含 `:`，会被 joinpath 重新锚定到 UNC 目标从而逃出沙箱。
         safe = [
             part
             for part in Path(path).parts
-            if part not in ("/", "\\", ".", "..") and ":" not in part
+            if part not in ("/", "\\", ".", "..")
+            and ":" not in part
+            and "\\" not in part
+            and "/" not in part
         ]
         target = self._sandbox.joinpath(*safe) if safe else self._sandbox / "root"
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -265,6 +282,14 @@ class MockRegistry:
 
 
 def _split_url(url: str) -> tuple[str, str]:
+    """拆出 (host, path[?query])。
+
+    **query 必须并入 path**：`urlsplit(...).path` 会丢弃查询串，导致
+    `?a=1` 与 `?a=2` 得到同一指纹——录制时后者覆盖前者，回放时命中错误响应。
+    """
     parsed = urllib.parse.urlsplit(url)
     host = parsed.hostname or ""
-    return host, parsed.path or "/"
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    return host, path

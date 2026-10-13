@@ -320,6 +320,16 @@ test("parseCalibrationFile：必填 samples，校验形状", () => {
   assert.throws(() => parseCalibrationFile('{"samples":[{"id":"p1"}]}'), /id\(string\)/);
 });
 
+test("parseCalibrationFile：repeatScores 拒绝非数字元素（回归）", () => {
+  assert.throws(
+    () =>
+      parseCalibrationFile(
+        '{"samples":[{"id":"p1","predicted":1,"human":1}],"repeatScores":[["a","b"]]}',
+      ),
+    /二维数字数组/,
+  );
+});
+
 test("calibrateCommand：高一致样本 → QWK 高，但样本量不足不通过", () => {
   const dir = makeTmpDir();
   try {

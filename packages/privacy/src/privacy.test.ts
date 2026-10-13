@@ -66,6 +66,18 @@ test("pruneAst：保留签名，折叠函数体", () => {
   assert.ok(out.includes("class Foo"));
 });
 
+test("redact：10.x 私网地址完整脱敏（回归：曾只匹配三段）", () => {
+  const r = redact("内网 10.0.0.1 与 172.16.0.9");
+  assert.equal(r.text, "内网 [IP] 与 [IP]");
+});
+
+test("pruneAst：字符串含 // 或 # 时不被注释规则截断（回归：曾先删注释）", () => {
+  const out = pruneAst('url = "http://a/b#c"\ny = 2');
+  assert.ok(out.includes('"…"'));
+  assert.ok(!out.includes('"http:'));
+  assert.ok(out.includes("y = N")); // 后续代码未被误当注释吞掉
+});
+
 test("routeSupplier：评审/生成路由到不同供应商", () => {
   assert.notEqual(routeSupplier("review"), routeSupplier("generation"));
 });

@@ -17,6 +17,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from contextlib import redirect_stdout
 from http.server import HTTPServer
 from pathlib import Path
@@ -376,6 +377,40 @@ def test_cli_record_passes_mock_env():
     res = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
     assert res["final_answer"]["text"] == str(deps_dir)
     assert res["mock_mode"] == "replay"
+
+
+# 卡死 Agent：写一行协议后长眠，且**不关闭 stdout**（模拟持有管道的挂起）。
+HANG_AGENT_SOURCE = '''\
+import json
+import sys
+import time
+
+sys.stdout.write(json.dumps({
+    "type": "span", "id": "s1", "name": "x", "kind": "LLM",
+    "start_ms": 0, "duration_ms": 1, "attributes": {},
+}) + "\\n")
+sys.stdout.flush()
+time.sleep(3600)
+'''
+
+
+def test_record_agent_times_out_on_hung_agent():
+    """回归：Agent 挂起且不关 stdout 时，超时看门狗必须及时中断（此前会无限阻塞）。"""
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="ceg-hang-"))
+    agent_dir = tmp / "agent"
+    agent_dir.mkdir()
+    (agent_dir / "main.py").write_text(HANG_AGENT_SOURCE, encoding="utf-8")
+
+    t0 = time.time()
+    try:
+        record_agent(agent_dir, tmp / "run", python=sys.executable, timeout=1)
+        assert False, "应抛 RecordError（超时）"
+    except RecordError:
+        pass
+    elapsed = time.time() - t0
+    assert elapsed < 20, f"超时应及时触发，实际耗时 {elapsed:.1f}s（疑似仍会挂起）"
 
 
 def main():

@@ -4,6 +4,10 @@
 import { LEVEL_ORDER, type LogEntry, type Logger, type LogLevel } from "./types.js";
 
 export function createLogger(minLevel: LogLevel = "info"): Logger {
+  // 与 setLevel 同一校验：非法级别会让 indexOf 返回 -1、过滤恒 false、全级别泄漏
+  if (!LEVEL_ORDER.includes(minLevel)) {
+    throw new RangeError(`非法日志级别: ${minLevel}（可选 ${LEVEL_ORDER.join("/")}）`);
+  }
   const entries: LogEntry[] = [];
   let currentLevel: LogLevel = minLevel;
 

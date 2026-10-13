@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import threading
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -76,17 +77,30 @@ class RecorderHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
 
+        # 转发 Agent 原始请求头（保留 Authorization 等鉴权头），仅剔除逐跳头与
+        # Accept-Encoding：urllib 不会自动解压，转发 gzip 协商会录到压缩字节流。
+        hop_by_hop = {"host", "content-length", "connection", "transfer-encoding", "accept-encoding"}
+        fwd_headers = {k: v for k, v in self.headers.items() if k.lower() not in hop_by_hop}
+        if not any(k.lower() == "content-type" for k in fwd_headers):
+            fwd_headers["Content-Type"] = "application/json"
+
         req = urllib.request.Request(
             self.upstream + self.path,
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers=fwd_headers,
             method="POST",
         )
-        with urllib.request.urlopen(req) as resp:
-            resp_body = resp.read()
-            # 记录真实状态码。旧实现把它硬编码成 200——上游返回 4xx/5xx 时
-            # 录制产物会说「成功」，回放时就再也复现不出那次失败。
-            status = getattr(resp, "status", 200)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                resp_body = resp.read()
+                # 记录真实状态码。旧实现把它硬编码成 200——上游返回 4xx/5xx 时
+                # 录制产物会说「成功」，回放时就再也复现不出那次失败。
+                status = getattr(resp, "status", 200)
+        except urllib.error.HTTPError as e:
+            # urlopen 对 ≥400 抛 HTTPError；必须在此读取错误响应体并记下真实
+            # 状态码，否则 4xx/5xx 既不落盘、代理还会向上游调用方抛异常。
+            resp_body = e.read()
+            status = e.code
 
         # ---- 分派：新路径优先 ----
         if self.recording_session is not None:
@@ -113,7 +127,8 @@ class RecorderHandler(BaseHTTPRequestHandler):
                 "RecorderHandler 未配置录制目标（recording_session 或 recording 必须有一个）"
             )
 
-        self.send_response(200)
+        # 如实回传上游状态码：4xx/5xx 也要让 Agent 看到失败（与录制产物一致）。
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(resp_body)))
         self.end_headers()

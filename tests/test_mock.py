@@ -5,11 +5,13 @@
 """
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from python.replay.fingerprint import fingerprint  # noqa: E402
 from python.replay.mock import (  # noqa: E402
     MockDB,
     MockFile,
@@ -74,6 +76,15 @@ def test_http_invalid_mode_raises():
         pass
 
 
+def test_http_query_string_affects_fingerprint():
+    """回归：_split_url 曾丢弃 query，导致 ?a=1 与 ?a=2 指纹碰撞。"""
+    rec = MockHttp(mode="replay")
+    rec._records[fingerprint("GET", "h", "/x?a=1", b"")] = {"status": 200, "body": "one"}
+    rec._records[fingerprint("GET", "h", "/x?a=2", b"")] = {"status": 200, "body": "two"}
+    assert rec._replay("http://h/x?a=1", b"", "GET") == b"one"
+    assert rec._replay("http://h/x?a=2", b"", "GET") == b"two"
+
+
 # ---- MockDB ----
 
 
@@ -119,6 +130,39 @@ def test_db_invalid_mode_raises():
         pass
 
 
+def test_db_named_params_affect_fingerprint():
+    """回归：dict 命名参数曾只哈希键，{i:1} 与 {i:2} 指纹碰撞。"""
+    rec = MockDB(mode="record")
+    rec.execute("CREATE TABLE t (id INTEGER, name TEXT)")
+    rec.execute("INSERT INTO t VALUES (1, 'a')")
+    rec.execute("INSERT INTO t VALUES (2, 'b')")
+    assert rec.execute("SELECT name FROM t WHERE id = :i", {"i": 1}) == [("a",)]
+    assert rec.execute("SELECT name FROM t WHERE id = :i", {"i": 2}) == [("b",)]
+
+    replay = MockDB.from_dict(rec.to_dict(), mode="replay")
+    assert replay.execute("SELECT name FROM t WHERE id = :i", {"i": 1}) == [("a",)]
+    assert replay.execute("SELECT name FROM t WHERE id = :i", {"i": 2}) == [("b",)]
+
+
+def test_db_cross_thread_works():
+    """回归：sqlite 连接默认禁止跨线程，MockDB 可能被 Agent 工作线程调用。"""
+    db = MockDB(mode="record")
+    db.execute("CREATE TABLE t (id INTEGER)")
+    errors = []
+
+    def work():
+        try:
+            db.execute("INSERT INTO t VALUES (1)")
+            db.execute("SELECT * FROM t")
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    th = threading.Thread(target=work)
+    th.start()
+    th.join()
+    assert not errors, errors
+
+
 # ---- MockFile ----
 
 
@@ -137,6 +181,16 @@ def test_file_sandbox_relative_path():
     f = MockFile(sandbox)
     f.write_text("out/result.txt", "hello")
     assert (sandbox / "out" / "result.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_file_sandbox_rejects_unc_path():
+    """回归：UNC 路径 \\\\server\\share\\x 曾逃出沙箱（parts 首段不含 ':'）。"""
+    if sys.platform != "win32":
+        return  # UNC 语义仅 Windows
+    sandbox = _tmpdir()
+    f = MockFile(sandbox)
+    target = f.resolve("\\\\server\\share\\evil.txt").resolve()
+    assert sandbox.resolve() in target.parents, f"UNC 路径逃逸沙箱: {target}"
 
 
 # ---- MockRegistry ----

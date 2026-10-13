@@ -12,6 +12,10 @@ test("默认 info 级别过滤 debug", () => {
   assert.ok(msgs.includes("记录我"));
 });
 
+test("createLogger 拒绝非法初始级别（回归：曾静默放行致过滤失效）", () => {
+  assert.throws(() => createLogger("bogus" as never), /非法日志级别/);
+});
+
 test("setLevel debug 后记录 debug", () => {
   const log = createLogger("warn");
   log.debug("d");

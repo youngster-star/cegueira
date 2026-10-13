@@ -16,7 +16,9 @@ const RULES: Rule[] = [
   {
     category: "hardcoded_api_key",
     severity: "high",
-    re: /\b(?:sk-[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)\b/,
+    // PEM 头以连字符起止，两侧无单词边界（`\b` 在 `-` 与空白之间不成立），
+    // 因此不能与 sk-/AKIA/ghp_ 共用外层 `\b…\b`——否则标准 PEM 私钥永远漏检。
+    re: /(?:\bsk-[A-Za-z0-9]{16,}\b|\bAKIA[0-9A-Z]{16}\b|\bghp_[A-Za-z0-9]{20,}\b|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
     message: "检测到硬编码密钥",
   },
   {

@@ -58,3 +58,10 @@ test("scan：区分大小写规则（pickle/yaml 小写才命中）", () => {
   const r = scan("Pickle.Loads(data)\nYAML.load(f)\n");
   assert.equal(r.findings.length, 0);
 });
+
+test("scan：检出 PEM 私钥头（回归：曾因外层 \\b 包裹而漏检）", () => {
+  const r = scan("-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n");
+  const f = r.findings.find((x) => x.category === "hardcoded_api_key");
+  assert.ok(f, "标准 PEM 头应被检出");
+  assert.equal(f.severity, "high");
+});

@@ -52,7 +52,13 @@ export function pruneBodies(text: string): string {
   return out.join("\n");
 }
 
-/** 完整裁剪：去注释 → 去字面量 → 折叠函数体。 */
+/**
+ * 完整裁剪：去字面量 → 去注释 → 折叠函数体。
+ *
+ * **顺序很关键**：必须先折叠字面量再删注释。若先删注释，字符串里的
+ * `//`（URL）或 `#`（CSS 颜色、Python 格式串）会被当成注释起点，把字符串
+ * 从中间截断（`url = "http://x"` → `url = "http:`），外发产物被静默破坏。
+ */
 export function pruneAst(text: string): string {
-  return pruneBodies(stripLiterals(stripComments(text)));
+  return pruneBodies(stripComments(stripLiterals(text)));
 }
