@@ -304,6 +304,80 @@ def test_record_cases_continues_after_case_failure():
     assert "error" in next(c for c in index["cases"] if c["id"] == "c2")
 
 
+# 回显 mock 相关环境变量，用于验证产品化接线是否注入到位。
+DEPS_AGENT_SOURCE = '''\
+import json
+import os
+import sys
+
+sys.stdout.write(json.dumps({
+    "type": "trace",
+    "final_answer": {"text": os.environ.get("CEG_DEPS_DIR", ""), "cited_doc_ids": []},
+    "mock_mode": os.environ.get("CEG_MOCK_MODE", ""),
+}) + "\\n")
+sys.stdout.flush()
+'''
+
+
+def test_record_cases_defaults_deps_dir_per_case():
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="ceg-deps-"))
+    agent_dir = tmp / "agent"
+    agent_dir.mkdir()
+    (agent_dir / "main.py").write_text(
+        DEPS_AGENT_SOURCE, encoding="utf-8"
+    )
+    cases = [{"id": "c1", "prompt": "p1"}, {"id": "c2", "prompt": "p2"}]
+    run_dir = tmp / "run"
+    record_cases(
+        agent_dir,
+        run_dir,
+        cases,
+        python=sys.executable,
+        env={"CEG_MOCK_MODE": "replay"},
+        timeout=30,
+    )
+    for cid in ("c1", "c2"):
+        res = json.loads((run_dir / cid / "result.json").read_text(encoding="utf-8"))
+        # 未显式给 deps-dir 时，逐 case 默认落到各自的子目录
+        assert res["final_answer"]["text"] == str(run_dir.resolve() / cid)
+        assert res["mock_mode"] == "replay"
+
+
+def test_cli_record_passes_mock_env():
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="ceg-deps-"))
+    agent_dir = tmp / "agent"
+    agent_dir.mkdir()
+    (agent_dir / "main.py").write_text(DEPS_AGENT_SOURCE, encoding="utf-8")
+    run_dir = tmp / "run"
+    deps_dir = tmp / "mydeps"
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        code = cli.main(
+            [
+                "record",
+                "--agent",
+                str(agent_dir),
+                "--out",
+                str(run_dir),
+                "--python",
+                sys.executable,
+                "--mock-mode",
+                "replay",
+                "--deps-dir",
+                str(deps_dir),
+            ]
+        )
+    assert code == 0
+    res = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+    assert res["final_answer"]["text"] == str(deps_dir)
+    assert res["mock_mode"] == "replay"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

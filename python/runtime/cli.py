@@ -19,11 +19,33 @@ import argparse
 import json
 import sys
 
+from pathlib import Path
+
 from ..replay.recorder import DEFAULT_UPSTREAM
-from .record import RecordError, load_evalset, record_agent, record_cases
+from .record import (
+    ENV_DEPS_DIR,
+    ENV_MOCK_MODE,
+    RecordError,
+    load_evalset,
+    record_agent,
+    record_cases,
+)
+
+
+def _record_env(args: argparse.Namespace) -> dict[str, str]:
+    """组装传给 Agent 的 mock 相关环境变量（P2 任务 1 产品化接线）。
+
+    支持的产品化细节：录制时把外部依赖桩落进**本次 run 的目录**（而不是仓里固定
+    位置），回放时从同一目录载入；`--deps-dir` 可显式覆盖。
+    """
+    env: dict[str, str] = {ENV_MOCK_MODE: args.mock_mode}
+    if args.deps_dir:
+        env[ENV_DEPS_DIR] = args.deps_dir
+    return env
 
 
 def _cmd_record(args: argparse.Namespace) -> int:
+    env = _record_env(args)
     # 逐 case 模式：按 evalset 逐条运行，落 cases.json 索引。
     if args.evalset:
         try:
@@ -35,6 +57,7 @@ def _cmd_record(args: argparse.Namespace) -> int:
                 entry=args.entry,
                 upstream=args.upstream,
                 python=args.python,
+                env=env,
                 timeout=args.timeout,
             )
         except RecordError as e:
@@ -51,6 +74,8 @@ def _cmd_record(args: argparse.Namespace) -> int:
         print(json.dumps(summary, ensure_ascii=False))
         return 0
 
+    # 单次录制：外部依赖桩默认落到本次 run 目录，避免污染仓内固定位置。
+    env.setdefault(ENV_DEPS_DIR, str(Path(args.out).resolve()))
     try:
         res = record_agent(
             agent_dir=args.agent,
@@ -58,6 +83,7 @@ def _cmd_record(args: argparse.Namespace) -> int:
             entry=args.entry,
             upstream=args.upstream,
             python=args.python,
+            env=env,
             timeout=args.timeout,
         )
     except RecordError as e:
@@ -99,6 +125,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--evalset",
         default=None,
         help="evalset.json 路径；提供则按 case 逐条录制，产出 cases.json 索引",
+    )
+    rec.add_argument(
+        "--mock-mode",
+        choices=["record", "replay"],
+        default="record",
+        help="外部依赖模式：record 真实执行并落桩，replay 从桩载入（无副作用）",
+    )
+    rec.add_argument(
+        "--deps-dir",
+        default=None,
+        help="外部依赖桩目录（缺省：单次=run 目录，逐 case=各 case 子目录）",
     )
     rec.set_defaults(func=_cmd_record)
 

@@ -20,7 +20,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
 
 命令：
   init     生成契约五件套（--direction <方向>，默认「RAG 问答 Agent」）
-  record   跑 Agent 并落录制产物（--agent <目录> --out <录制目录> [--evalset <evalset.json>]）
+  record   跑 Agent 并落录制产物（--agent <目录> --out <录制目录> [--evalset <evalset.json>] [--mock-mode record|replay] [--deps-dir <目录>]）
   grade    契约 + 录制目录 → 评分报告（--contract <contract.json> --run <录制目录> [--store <目录>] [--system-prompt <文件>] [--evalset <evalset.json>] [--ran-cases a,b] [--case <id>]）
   scan     L1 静态分析（--path <文件或目录>）
   rubric   LLM 评审 rubric 维度（--rubric <yaml|json> --artifact <文件> [--llm a,b] [--budget <tokens>] [--yes]）
@@ -69,6 +69,8 @@ export async function run(argv: string[]): Promise<void> {
           repoRoot: options.root,
           timeoutSec: timeout !== undefined ? Number(timeout) : undefined,
           evalset: options.evalset,
+          mockMode: options["mock-mode"] === "replay" ? "replay" : options["mock-mode"] === "record" ? "record" : undefined,
+          depsDir: options["deps-dir"],
         }),
       );
       break;

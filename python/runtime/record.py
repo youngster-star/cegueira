@@ -49,6 +49,9 @@ RESULT_FILE = "result.json"
 CASES_FILE = "cases.json"
 ENV_CASE_ID = "CEG_CASE_ID"
 ENV_CASE_PROMPT = "CEG_CASE_PROMPT"
+# 外部依赖 mock 的约定环境变量（P2 任务 1 产品化接线）
+ENV_MOCK_MODE = "CEG_MOCK_MODE"
+ENV_DEPS_DIR = "CEG_DEPS_DIR"
 
 
 class RecordError(RuntimeError):
@@ -377,6 +380,8 @@ def record_cases(
         case_env = dict(env or {})
         case_env[ENV_CASE_ID] = case["id"]
         case_env[ENV_CASE_PROMPT] = case["prompt"]
+        # 每个 case 的外部依赖桩默认落到它自己的子目录，互不串味。
+        case_env.setdefault(ENV_DEPS_DIR, str(case_dir))
         try:
             res = record_agent(
                 agent_dir,

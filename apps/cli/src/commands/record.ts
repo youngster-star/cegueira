@@ -43,6 +43,10 @@ export interface RecordOptions {
   upstream?: string;
   /** evalset.json 路径；提供则逐 case 录制。 */
   evalset?: string;
+  /** 外部依赖模式：record（真实执行并落桩）/ replay（从桩载入）。 */
+  mockMode?: "record" | "replay";
+  /** 外部依赖桩目录；缺省落进 run 目录。 */
+  depsDir?: string;
   /** 显式指定 Python 解释器；缺省自动探测。 */
   python?: string;
   /** 仓库根（`python` 包所在处）；缺省从本模块位置向上探测。 */
@@ -130,6 +134,8 @@ export function recordCommand(opts: RecordOptions, spawn: SpawnFn = defaultSpawn
   if (opts.upstream) args.push("--upstream", opts.upstream);
   if (opts.timeoutSec !== undefined) args.push("--timeout", String(opts.timeoutSec));
   if (opts.evalset) args.push("--evalset", opts.evalset);
+  if (opts.mockMode) args.push("--mock-mode", opts.mockMode);
+  if (opts.depsDir) args.push("--deps-dir", opts.depsDir);
 
   const res = spawn(python, args, { cwd: repoRoot, encoding: "utf-8" });
   if (res.error) {

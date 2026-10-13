@@ -668,6 +668,24 @@ test("recordCommand：--evalset 透传并渲染逐 case 摘要", () => {
   assert.ok(report.includes("失败 case"));
 });
 
+test("recordCommand：--mock-mode/--deps-dir 透传", () => {
+  let captured: string[] = [];
+  const fake = (_cmd: string, args: string[]): SpawnResult => {
+    captured = args;
+    return {
+      status: 0,
+      stdout: JSON.stringify({ run_id: "r", run_dir: "/r", spans: 0, tool_io: 0, http: 0, has_result: true }),
+      stderr: "",
+    };
+  };
+  recordCommand(
+    { agentDir: "/a", runDir: "/r", python: "/py", repoRoot: "/repo", mockMode: "replay", depsDir: "/deps" },
+    fake,
+  );
+  assert.equal(captured[captured.indexOf("--mock-mode") + 1], "replay");
+  assert.equal(captured[captured.indexOf("--deps-dir") + 1], "/deps");
+});
+
 // ---- ceg grade：契约 + 录制 → 评分报告 ----
 
 const GRADE_CONTRACT: Contract = {
