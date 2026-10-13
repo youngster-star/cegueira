@@ -1,6 +1,7 @@
 /**
  * 四道防作弊综合判定（P2 任务 3）。
  */
+export * from "./types.js";
 import type { AgentTrace } from "@cegueira/trace";
 import type { AntiCheatReport, EvalCase } from "./types.js";
 import { checkHoldout } from "./holdout.js";

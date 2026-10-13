@@ -50,8 +50,8 @@ test("aggregateSkill：空列表与越界分数抛错", () => {
   );
 });
 
-test("isLucidez：第 3 档起算「掌握」", () => {
-  assert.equal(isLucidez(2), false);
-  assert.equal(isLucidez(3), true);
+test("isLucidez：第 5 档（掌握）起算（开发文档 §9.5）", () => {
+  assert.equal(isLucidez(4), false);
+  assert.equal(isLucidez(5), true);
   assert.equal(isLucidez(6), true);
 });

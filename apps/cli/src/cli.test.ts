@@ -17,6 +17,8 @@ import {
   detectPromptLeak,
   gradeCommand,
   loadTrace,
+  renderAntiCheat,
+  toEvalCases,
 } from "./commands/grade.js";
 import { historyCommand, recordScore } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
@@ -44,7 +46,7 @@ import {
 } from "./commands/record.js";
 import { collectPythonFiles, scanCommand, scanPath } from "./commands/scan.js";
 import { submitCommand } from "./commands/submit.js";
-import type { Contract } from "@cegueira/contract";
+import type { Contract, EvalSet } from "@cegueira/contract";
 import type { AgentTrace } from "@cegueira/trace";
 
 function makeTmpDir(): string {
@@ -471,7 +473,7 @@ test("grade --store：报告中提示已落库，history 可查", () => {
   try {
     const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
     const store = join(dir, "data");
-    const report = gradeCommand(contractPath, runDir, undefined, store);
+    const report = gradeCommand({ contractPath, runDir, storeDir: store });
     assert.ok(report.includes("已保存评分"));
     assert.ok(historyCommand(store).includes("共 1 条"));
   } finally {
@@ -682,7 +684,7 @@ test("grade 从 manifest 评分，S_outcome=1 且报告含验收明细", () => {
   const dir = makeTmpDir();
   try {
     const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
-    const report = gradeCommand(contractPath, runDir);
+    const report = gradeCommand({ contractPath, runDir });
     assert.ok(report.includes("最终得分"));
     assert.ok(report.includes("outcome=1.000"));
     assert.ok(report.includes("验收明细"));
@@ -699,7 +701,7 @@ test("grade：越界工具使白名单门控与任务断言都失败", () => {
     const trace = healthyTrace();
     trace.tools.push({ id: "t2", name: "rm_rf", args: {}, result: null, ok: true, latencyMs: 1 });
     const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, trace);
-    const report = gradeCommand(contractPath, runDir);
+    const report = gradeCommand({ contractPath, runDir });
     assert.ok(report.includes("白名单=不过"));
     // 两条断言一过一失 → 任务通过率 0.5
     assert.ok(report.includes("outcome=0.500"));
@@ -713,7 +715,7 @@ test("grade：契约校验不通过时报错", () => {
   try {
     const bad: Contract = { ...GRADE_CONTRACT, schema: "9.9" };
     const { contractPath, runDir } = writeGradeFixture(dir, bad, healthyTrace());
-    assert.throws(() => gradeCommand(contractPath, runDir), /契约校验未通过/);
+    assert.throws(() => gradeCommand({ contractPath, runDir }), /契约校验未通过/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -757,7 +759,7 @@ test("grade --system-prompt：检测到泄漏 → 安全门控未通过、得分
     const trace = healthyTrace();
     trace.finalAnswer = { text: LEAK_PROMPT, citedDocIds: ["d1"] };
     const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, trace);
-    const report = gradeCommand(contractPath, runDir, undefined, undefined, LEAK_PROMPT);
+    const report = gradeCommand({ contractPath, runDir, systemPrompt: LEAK_PROMPT });
     assert.ok(report.includes("提示词泄漏=有"));
     assert.ok(report.includes("安全门控：未通过"));
     assert.ok(report.includes("最终得分（预览）：0"));
@@ -770,9 +772,102 @@ test("grade --system-prompt：无泄漏 → 提示词检查显示「无」", () 
   const dir = makeTmpDir();
   try {
     const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
-    const report = gradeCommand(contractPath, runDir, undefined, undefined, LEAK_PROMPT);
+    const report = gradeCommand({ contractPath, runDir, systemPrompt: LEAK_PROMPT });
     assert.ok(report.includes("提示词泄漏=无"));
     assert.ok(!report.includes("安全门控：未通过"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- ceg grade：四道防作弊（detectCheat 接线） ----
+
+const CHEAT_EVALSET: EvalSet = {
+  tests: [
+    {
+      id: "c1",
+      prompt: "什么是检索增强生成的核心流程与关键步骤",
+      expected_outcome: "应带引用",
+      data_flow_assertions: [],
+      splits: "public",
+      rewrites: [],
+    },
+    {
+      id: "c2",
+      prompt: "解释向量数据库在高维检索中扮演的角色",
+      expected_outcome: "应带引用",
+      data_flow_assertions: [],
+      splits: "holdout",
+      rewrites: [],
+    },
+  ],
+};
+
+function writeEvalset(dir: string, evalset: EvalSet): string {
+  const p = join(dir, "evalset.json");
+  writeFileSync(p, JSON.stringify(evalset));
+  return p;
+}
+
+test("toEvalCases：契约蛇形 evalset → 防作弊驼峰 EvalCase", () => {
+  const cases = toEvalCases(CHEAT_EVALSET);
+  assert.equal(cases[0].id, "c1");
+  assert.equal(cases[0].expectedOutcome, "应带引用");
+  assert.equal(cases[1].split, "holdout");
+});
+
+test("renderAntiCheat：未作弊时逐条显示通过", () => {
+  const text = renderAntiCheat({
+    holdoutIntact: true,
+    holdoutMissing: [],
+    rewriteSuspicious: false,
+    rewriteReasons: [],
+    dataFlowViolations: [],
+    perturbationResistant: true,
+    perturbationLeaks: [],
+    cheated: false,
+    reasons: [],
+  }).join("\n");
+  assert.ok(text.includes("未检出"));
+  assert.ok(text.includes("留出集完整：是"));
+});
+
+test("grade --evalset：答案照抄题目 → 硬编码嫌疑，检出作弊", () => {
+  const dir = makeTmpDir();
+  try {
+    const trace = healthyTrace();
+    trace.finalAnswer = { text: CHEAT_EVALSET.tests[0].prompt, citedDocIds: ["d1"] };
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, trace);
+    const evalsetPath = writeEvalset(dir, CHEAT_EVALSET);
+    const report = gradeCommand({ contractPath, runDir, evalsetPath });
+    assert.ok(report.includes("检出作弊"));
+    assert.ok(report.includes("疑似"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("grade --evalset：留出集未运行 → 检出作弊", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
+    const evalsetPath = writeEvalset(dir, CHEAT_EVALSET);
+    const report = gradeCommand({ contractPath, runDir, evalsetPath, ranCases: ["c1"] });
+    assert.ok(report.includes("检出作弊"));
+    assert.ok(report.includes("缺 c2"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("grade --evalset：干净轨迹未被判作弊", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
+    const evalsetPath = writeEvalset(dir, CHEAT_EVALSET);
+    const report = gradeCommand({ contractPath, runDir, evalsetPath });
+    assert.ok(report.includes("防作弊：未检出"));
+    assert.ok(!report.includes("检出作弊"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

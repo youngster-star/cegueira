@@ -21,7 +21,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
 命令：
   init     生成契约五件套（--direction <方向>，默认「RAG 问答 Agent」）
   record   跑一次 Agent 并落录制产物（--agent <目录> --out <录制目录>）
-  grade    契约 + 录制目录 → 评分报告（--contract <contract.json> --run <录制目录> [--store <目录>] [--system-prompt <文件>]）
+  grade    契约 + 录制目录 → 评分报告（--contract <contract.json> --run <录制目录> [--store <目录>] [--system-prompt <文件>] [--evalset <evalset.json>] [--ran-cases a,b]）
   scan     L1 静态分析（--path <文件或目录>）
   rubric   LLM 评审 rubric 维度（--rubric <json> --artifact <文件> [--llm a,b] [--budget <tokens>] [--yes]）
   calibrate 校准报告（--labels <人工标注json>）
@@ -79,7 +79,20 @@ export async function run(argv: string[]): Promise<void> {
       if (!run) throw new Error("grade 需要 --run <录制目录>");
       const systemPromptPath = options["system-prompt"];
       const systemPrompt = systemPromptPath ? readFileSync(systemPromptPath, "utf8") : undefined;
-      console.log(gradeCommand(contract, run, options.security, options.store, systemPrompt));
+      const ranCases = options["ran-cases"]
+        ? options["ran-cases"].split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+      console.log(
+        gradeCommand({
+          contractPath: contract,
+          runDir: run,
+          securityJson: options.security,
+          storeDir: options.store,
+          systemPrompt,
+          evalsetPath: options.evalset,
+          ranCases,
+        }),
+      );
       break;
     }
     case "history": {

@@ -20,7 +20,13 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { validateContract, type Contract } from "@cegueira/contract";
+import { detectCheat, type AntiCheatReport, type EvalCase } from "@cegueira/antich";
+import {
+  validateContract,
+  type Contract,
+  type EvalSet,
+  type EvalTest,
+} from "@cegueira/contract";
 import { scoreFromTrace, type SecurityChecks } from "@cegueira/scorer";
 import type { AgentTrace } from "@cegueira/trace";
 import { parseRecording } from "@cegueira/trace/load";
@@ -116,14 +122,46 @@ export function deriveSecurity(
   };
 }
 
+/** 把契约的 evalset 条目（蛇形）映射为防作弊的 EvalCase（驼峰）。 */
+export function toEvalCases(evalset: EvalSet): EvalCase[] {
+  return evalset.tests.map((t: EvalTest) => ({
+    id: t.id,
+    prompt: t.prompt,
+    expectedOutcome: t.expected_outcome,
+    // 契约里 source 是宽 string，防作弊要求 "retrieval" | "tool"（契约校验保证取值）。
+    dataFlowAssertions: t.data_flow_assertions as EvalCase["dataFlowAssertions"],
+    split: t.splits,
+    rewrites: t.rewrites,
+  }));
+}
+
+/** 防作弊报告文本。 */
+export function renderAntiCheat(report: AntiCheatReport): string[] {
+  return [
+    `防作弊：${report.cheated ? "⚠ 检出作弊" : "未检出"}`,
+    `  留出集完整：${report.holdoutIntact ? "是" : `否（缺 ${report.holdoutMissing.join(", ")}）`}`,
+    `  改写/硬编码：${report.rewriteSuspicious ? `疑似（${report.rewriteReasons.join("；")}）` : "无"}`,
+    `  数据流断言：${report.dataFlowViolations.length === 0 ? "无违规" : `${report.dataFlowViolations.length} 项违规`}`,
+    `  语料扰动：${report.perturbationResistant ? "抗污染" : `被污染（${report.perturbationLeaks.join(", ")}）`}`,
+  ];
+}
+
+export interface GradeOptions {
+  contractPath: string;
+  runDir: string;
+  securityJson?: string;
+  storeDir?: string;
+  /** 系统提示词文本，用于 no_prompt_leak 判定。 */
+  systemPrompt?: string;
+  /** evalset.json 路径；提供则跑四道防作弊。 */
+  evalsetPath?: string;
+  /** 录制实际覆盖的 case id；缺省视为覆盖全部（单次录制的近似口径）。 */
+  ranCases?: string[];
+}
+
 /** 评分报告文本。 */
-export function gradeCommand(
-  contractPath: string,
-  runDir: string,
-  securityJson?: string,
-  storeDir?: string,
-  systemPrompt?: string,
-): string {
+export function gradeCommand(opts: GradeOptions): string {
+  const { contractPath, runDir, securityJson, storeDir, systemPrompt } = opts;
   const contract = JSON.parse(readFileSync(contractPath, "utf8")) as Contract;
   const check = validateContract(contract);
   if (!check.ok) {
@@ -140,6 +178,15 @@ export function gradeCommand(
   const leak = systemPrompt !== undefined ? detectPromptLeak(systemPrompt, trace) : undefined;
   if (leak !== undefined && override?.no_prompt_leak === undefined) {
     security.no_prompt_leak = !leak.leaked;
+  }
+
+  // 四道防作弊：需 evalset；runCaseIds 缺省视为覆盖全部 case（单次录制的近似口径）。
+  let antiCheat: AntiCheatReport | undefined;
+  if (opts.evalsetPath !== undefined) {
+    const evalset = JSON.parse(readFileSync(opts.evalsetPath, "utf8")) as EvalSet;
+    const evalCases = toEvalCases(evalset);
+    const runCaseIds = opts.ranCases ?? evalCases.map((c) => c.id);
+    antiCheat = detectCheat({ trace, runCaseIds, evalCases });
   }
 
   const { result, outcome, metrics } = scoreFromTrace(contract, trace, { security });
@@ -176,6 +223,10 @@ export function gradeCommand(
     `验收明细：`,
     ...taskLines,
   ];
+
+  if (antiCheat) {
+    lines.push("", ...renderAntiCheat(antiCheat));
+  }
 
   if (storeDir) {
     const saved = recordScore(storeDir, contract, result);

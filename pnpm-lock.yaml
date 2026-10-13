@@ -175,6 +175,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@cegueira/antich':
+        specifier: workspace:*
+        version: link:../../packages/antich
       '@cegueira/budget':
         specifier: workspace:*
         version: link:../../packages/budget

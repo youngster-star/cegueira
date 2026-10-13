@@ -67,7 +67,7 @@ export function profileCommand(opts: ProfileOptions): string {
       now,
     });
     skills[skill] = { ...profile, percentile: 0 }; // 人口百分位需群体数据，MVP 置 0
-    // 成就须「确定」在掌握档之上：评估中（不确定度过高）不授予，避免误判（PRD §5.2/§5.6）
+    // 成就须「确定」在掌握档（档 5）之上：评估中（不确定度过高）不授予，避免误判（PRD §5.2/§5.6）
     if (isLucidez(profile.level) && profile.state !== "assessing") lucidez = true;
     const name = LEVELS.find((l) => l.level === profile.level)?.name ?? "";
     lines.push(

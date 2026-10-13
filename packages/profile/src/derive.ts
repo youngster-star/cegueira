@@ -71,7 +71,10 @@ export function aggregateSkill(input: AggregateSkillInput): {
   };
 }
 
-/** 是否进入「掌握」档（用于 Lucidez 成就，PRD §2 / §5.1「基本掌握」起算）。 */
+/**
+ * 是否进入「掌握」档（用于 Lucidez 成就）。
+ * 依据 docs/开发文档.md §9.5：「熟练度进入『掌握』档（**档 5**）时置 lucidez」。
+ */
 export function isLucidez(level: number): boolean {
-  return level >= 3;
+  return level >= 5;
 }
