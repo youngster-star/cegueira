@@ -31,7 +31,9 @@ import {
   rubricCommand,
   type ProviderFactory,
 } from "./commands/rubric.js";
+import { profileCommand } from "./commands/profile.js";
 import { processPrivacy } from "@cegueira/privacy";
+import { createJsonFilePersistence } from "@cegueira/persistence/persistence";
 import {
   findPython,
   findRepoRoot,
@@ -330,6 +332,87 @@ test("renderCalibrationReport：QWK 低于硬底线 → 明确禁用评分", () 
     reasons: ["QWK 低于硬底线 0.60"],
   });
   assert.ok(text.includes("评分功能不启用"), "硬底线未达须明确禁用");
+});
+
+// ---- ceg profile：评分→画像闭环 ----
+
+function seedScoreStore(dir: string): void {
+  const store = createJsonFilePersistence(dir);
+  store.projects.save({
+    id: "p1",
+    title: "RAG 问答",
+    direction: "RAG 问答",
+    contract: {},
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  for (const [id, finalScore, createdAt] of [
+    ["s1", 80, "2026-01-02T00:00:00.000Z"],
+    ["s2", 82, "2026-01-03T00:00:00.000Z"],
+  ] as const) {
+    store.scores.save({
+      id,
+      projectId: "p1",
+      finalScore,
+      sCore: finalScore / 100,
+      dimensions: { outcome: 1, process: 0.6, semantic: 0.8, rubric: 0.7 },
+      gates: {},
+      stats: {},
+      createdAt,
+    });
+  }
+}
+
+test("profileCommand：从落库评分聚合画像并写入 profiles", () => {
+  const dir = makeTmpDir();
+  try {
+    seedScoreStore(dir);
+    const report = profileCommand({ storeDir: dir, now: "2026-01-04T00:00:00.000Z" });
+    assert.ok(report.includes("RAG 问答"));
+    assert.ok(report.includes("第 5 档")); // 均值 81 → 8.1 → 精通
+
+    const saved = createJsonFilePersistence(dir).profiles.get("local");
+    assert.ok(saved, "应写入 profiles");
+    assert.equal(saved!.skills["RAG 问答"].level, 5);
+    assert.equal(saved!.achievements.lucidez, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("profileCommand：--skill 汇总全库为单一维度", () => {
+  const dir = makeTmpDir();
+  try {
+    seedScoreStore(dir);
+    const report = profileCommand({ storeDir: dir, skill: "Agent 工程", now: "2026-01-04T00:00:00.000Z" });
+    assert.ok(report.includes("Agent 工程"));
+    const saved = createJsonFilePersistence(dir).profiles.get("local")!;
+    assert.deepEqual(Object.keys(saved.skills), ["Agent 工程"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("profileCommand：不确定度过高（评估中）不授予 Lucidez", () => {
+  const dir = makeTmpDir();
+  try {
+    seedScoreStore(dir);
+    // now 距离最近评估很久 → 不确定度回升 → 评估中，即使分数进掌握档也不授成就
+    const report = profileCommand({ storeDir: dir, now: "2027-06-01T00:00:00.000Z" });
+    assert.ok(report.includes("尚未进入"));
+    assert.equal(createJsonFilePersistence(dir).profiles.get("local")!.achievements.lucidez, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("profileCommand：空库提示先评分", () => {
+  const dir = makeTmpDir();
+  try {
+    assert.ok(profileCommand({ storeDir: dir }).includes("暂无评分"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---- 评分落库与历史（ceg grade --store / ceg history） ----

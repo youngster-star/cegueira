@@ -7,6 +7,7 @@ import { gradeCommand } from "./commands/grade.js";
 import { historyCommand } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
 import { calibrateCommand } from "./commands/calibrate.js";
+import { profileCommand } from "./commands/profile.js";
 import { recordCommand } from "./commands/record.js";
 import { rubricCommand } from "./commands/rubric.js";
 import { scanCommand } from "./commands/scan.js";
@@ -23,6 +24,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
   scan     L1 静态分析（--path <文件或目录>）
   rubric   LLM 评审 rubric 维度（--rubric <json> --artifact <文件> [--llm a,b] [--budget <tokens>] [--yes]）
   calibrate 校准报告（--labels <人工标注json>）
+  profile  技能画像聚合（--store <数据目录> [--skill <名>]）
   history  评分历史（--store <数据目录> [--project <id>]）
   submit   提交评分（--input <评分输入json>）
   doctor   环境自检
@@ -34,6 +36,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
   ceg scan --path ./my-agent
   ceg rubric --rubric cegueira-contract/rubrics.json --artifact ./my-agent/main.py --yes
   ceg calibrate --labels calibration-labels.json
+  ceg profile --store .ceg-data
   ceg history --store .ceg-data
   ceg submit --input score-input.json
   ceg doctor
@@ -121,6 +124,12 @@ export async function run(argv: string[]): Promise<void> {
       const labels = options.labels;
       if (!labels) throw new Error("calibrate 需要 --labels <人工标注json>");
       console.log(calibrateCommand({ labelsPath: labels }));
+      break;
+    }
+    case "profile": {
+      const storeDir = options.store;
+      if (!storeDir) throw new Error("profile 需要 --store <数据目录>");
+      console.log(profileCommand({ storeDir, skill: options.skill }));
       break;
     }
     case "submit": {

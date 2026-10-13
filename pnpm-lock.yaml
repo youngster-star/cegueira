@@ -193,6 +193,9 @@ importers:
       '@cegueira/privacy':
         specifier: workspace:*
         version: link:../../packages/privacy
+      '@cegueira/profile':
+        specifier: workspace:*
+        version: link:../../packages/profile
       '@cegueira/scorer':
         specifier: workspace:*
         version: link:../../packages/scorer

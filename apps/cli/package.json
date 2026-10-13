@@ -17,6 +17,7 @@
     "@cegueira/llm": "workspace:*",
     "@cegueira/persistence": "workspace:*",
     "@cegueira/privacy": "workspace:*",
+    "@cegueira/profile": "workspace:*",
     "@cegueira/scorer": "workspace:*",
     "@cegueira/static-analysis": "workspace:*",
     "@cegueira/trace": "workspace:*"
