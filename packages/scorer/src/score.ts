@@ -74,7 +74,7 @@ export function sCoreOf(d: DimensionScores): number {
 export function score(input: ScoreInput): ScoreResult {
   const dimensions = dimensionsOf(input);
   const sCore = sCoreOf(dimensions);
-  const gates = runGates(input.security, dimensions.outcome);
+  const gates = runGates(input.security, dimensions.outcome, input.outcomeMin);
 
   const penalty = Math.max(0, input.penalty ?? 0); // penalty 语义为扣分，不允许为负（否则变加分）
   const gateFactor = gates.security.passed ? 1 : 0;

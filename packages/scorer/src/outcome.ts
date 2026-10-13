@@ -133,6 +133,8 @@ export interface ScoreFromTraceOptions {
   rubricSamples?: number[];
   /** 惩罚项。 */
   penalty?: number;
+  /** Gate_outcome 阈值（rubric.yaml gates.outcome_min）；缺省用 scorer 默认。 */
+  outcomeMin?: number;
 }
 
 /** 由轨迹算出的完整评分（含中间信号，便于报告）。 */
@@ -163,6 +165,7 @@ export function scoreFromTrace(
     rubricSamples: options.rubricSamples,
     security: options.security,
     penalty: options.penalty,
+    outcomeMin: options.outcomeMin,
   });
 
   return { result, outcome, metrics };

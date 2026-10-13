@@ -57,6 +57,14 @@ test("validateContract：单阶段单任务 weight=1 合法", () => {
   assert.equal(validateContract(c).ok, true);
 });
 
+test("validateContract：mutating_tools 可省略；给出时须为非空字符串数组", () => {
+  const c = generateBundle({ direction: "RAG" }).contract;
+  assert.equal(validateContract(c).ok, true); // 省略合法
+  assert.equal(validateContract({ ...c, mutating_tools: ["write_file"] }).ok, true);
+  assert.equal(validateContract({ ...c, mutating_tools: [""] }).ok, false);
+  assert.equal(validateContract({ ...c, mutating_tools: "write_file" as never }).ok, false);
+});
+
 test("validateContract：task acceptance 含非法条目时精确定位", () => {
   const c = generateBundle({ direction: "RAG" }).contract;
   const bad = JSON.parse(JSON.stringify(c)) as Contract;

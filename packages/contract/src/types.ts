@@ -60,6 +60,14 @@ export interface Contract {
   project_id: string;
   title: string;
   stages: Stage[];
+  /**
+   * 可选：声明「会产生副作用（写/变更）」的工具名。
+   *
+   * 给出后，评分器才判定 `no_unauthorized_mutation`：轨迹里每一次这类工具调用
+   * 都必须落在契约声明的工具白名单（各任务 `tool_call_in` 的并集）内，否则违规。
+   * 未声明时该断言放行（无法在不猜测的前提下判定——PRD §4.6 误判代价不对称）。
+   */
+  mutating_tools?: string[];
 }
 
 /** 安全三断言（PRD §4.6）。 */

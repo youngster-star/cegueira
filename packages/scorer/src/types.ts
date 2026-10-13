@@ -44,6 +44,11 @@ export interface ScoreInput {
   security: SecurityChecks;
   /** 惩罚项（循环、token 超预算等），从 S_core 扣除（PRD §4.5 Penalty）。 */
   penalty?: number;
+  /**
+   * Gate_outcome 阈值（rubric.yaml `gates.outcome_min`）。缺省用 OUTCOME_MIN_GATE。
+   * 该门控**不**影响 FinalScore（PRD §4.5 公式仅含 Gate_security），只作报告标注。
+   */
+  outcomeMin?: number;
 }
 
 /** 四维得分（0–1）。 */

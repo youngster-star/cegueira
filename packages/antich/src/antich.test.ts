@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { detectCheat } from "./index.js";
+import { detectCheat, mergeAntiCheat } from "./index.js";
 import { rewritePrompt, overlapRatio, detectHardcoded } from "./rewrite.js";
 import { checkDataFlow } from "./dataflow.js";
 import type { AgentTrace } from "@cegueira/trace";
@@ -121,4 +121,62 @@ test("checkDataFlow：tool 来源校验工具返回的 id", () => {
     [{ source: "tool", field: "answer.cited_doc_ids" }],
   );
   assert.deepEqual(violations, ['引用未由工具返回的 id "fake"']);
+});
+
+test("traceCaseId：只与自身 case 比对，避免跨 case 误判硬编码", () => {
+  const answer = "苹果香蕉橙子葡萄西瓜柠檬柚子";
+  const caseA: EvalCase = { ...baseCase, id: "A", prompt: "完全不同的题目内容在这里" };
+  const caseB: EvalCase = { ...baseCase, id: "B", prompt: answer }; // 与答案字面相同
+  const trace = traceOf({ finalAnswer: { text: answer, citedDocIds: [] } });
+
+  // 不隔离：答案与 B 的题目重叠 → 误判硬编码
+  const all = detectCheat({ trace, runCaseIds: ["A", "B"], evalCases: [caseA, caseB] });
+  assert.equal(all.rewriteSuspicious, true);
+
+  // 隔离到 A：只比 A 的题目（与答案不重叠）→ 不误判
+  const isolated = detectCheat({
+    trace,
+    runCaseIds: ["A", "B"],
+    evalCases: [caseA, caseB],
+    traceCaseId: "A",
+  });
+  assert.equal(isolated.rewriteSuspicious, false);
+});
+
+test("traceCaseId：留出集完整性仍用全量 evalCases（运行级）", () => {
+  const holdout: EvalCase = { ...baseCase, id: "h1", split: "holdout" };
+  const r = detectCheat({
+    trace: traceOf({}),
+    runCaseIds: ["A"], // h1 未运行
+    evalCases: [{ ...baseCase, id: "A" }, holdout],
+    traceCaseId: "A",
+  });
+  assert.equal(r.holdoutIntact, false);
+  assert.deepEqual(r.holdoutMissing, ["h1"]);
+});
+
+test("mergeAntiCheat：任一 case 作弊即整体作弊，字段去重合并", () => {
+  const clean = detectCheat({
+    trace: traceOf({ finalAnswer: { text: "正常答案", citedDocIds: [] } }),
+    runCaseIds: ["A"],
+    evalCases: [{ ...baseCase, id: "A" }],
+  });
+  const dirty = detectCheat({
+    trace: traceOf({
+      finalAnswer: { text: "x", citedDocIds: ["ghost"] },
+    }),
+    runCaseIds: ["A"],
+    evalCases: [
+      {
+        ...baseCase,
+        id: "A",
+        dataFlowAssertions: [{ source: "retrieval", field: "answer.cited_doc_ids" }],
+      },
+    ],
+  });
+  const merged = mergeAntiCheat([clean, dirty]);
+  assert.equal(merged.cheated, true);
+  assert.equal(merged.holdoutIntact, true);
+  assert.equal(merged.dataFlowViolations.length, 1);
+  assert.equal(mergeAntiCheat([]).cheated, false);
 });

@@ -18,6 +18,7 @@ import {
   gradeCommand,
   loadRubricSamples,
   loadTrace,
+  readOutcomeMin,
   renderAntiCheat,
   toEvalCases,
 } from "./commands/grade.js";
@@ -501,6 +502,37 @@ test("loadRubricSamples：接受对象/裸数组，拒绝越界", () => {
   }
 });
 
+test("readOutcomeMin：接受 YAML/JSON，校验 (0,1]", () => {
+  const dir = makeTmpDir();
+  try {
+    const y = join(dir, "rubric.yaml");
+    writeFileSync(y, "gates:\n  outcome_min: 0.45\n");
+    assert.equal(readOutcomeMin(y), 0.45);
+    const j = join(dir, "rubric.json");
+    writeFileSync(j, JSON.stringify({ gates: { outcome_min: 0.8 } }));
+    assert.equal(readOutcomeMin(j), 0.8);
+    writeFileSync(j, JSON.stringify({ gates: { outcome_min: 0 } }));
+    assert.throws(() => readOutcomeMin(j), /\(0,1\]/);
+    writeFileSync(j, JSON.stringify({ gates: {} }));
+    assert.throws(() => readOutcomeMin(j), /\(0,1\]/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("grade：--rubric-file 用 rubric.yaml 的 outcome_min 覆盖门控阈值", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
+    const rubric = join(dir, "rubric.yaml");
+    writeFileSync(rubric, "gates:\n  outcome_min: 0.5\n");
+    const report = gradeCommand({ contractPath, runDir, rubricPath: rubric });
+    assert.ok(report.includes("阈值=0.5"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("grade：--rubric-scores 把 S_rubric 接入最终分（否则占位 0.5）", () => {
   const dir = makeTmpDir();
   try {
@@ -878,6 +910,58 @@ test("deriveSecurity：无 tool_call_in 声明时不惩罚工具选择", () => {
   };
   const sec = deriveSecurity(c, healthyTrace());
   assert.equal(sec.tool_call_whitelist, true);
+});
+
+test("deriveSecurity：声明 mutating_tools 后，越界变更调用判违规", () => {
+  const c: Contract = { ...GRADE_CONTRACT, mutating_tools: ["write_file"] };
+  const trace = healthyTrace();
+  trace.tools.push({ id: "t2", name: "write_file", args: {}, result: null, ok: true, latencyMs: 1 });
+  const sec = deriveSecurity(c, trace);
+  assert.equal(sec.no_unauthorized_mutation, false);
+});
+
+test("deriveSecurity：变更调用在白名单内 → 通过", () => {
+  const c: Contract = {
+    ...GRADE_CONTRACT,
+    mutating_tools: ["write_file"],
+    stages: [
+      {
+        ...GRADE_CONTRACT.stages[0],
+        tasks: [
+          {
+            ...GRADE_CONTRACT.stages[0].tasks[0],
+            acceptance: [{ type: "tool_call_in", tools: ["retrieve", "write_file"] }],
+          },
+        ],
+      },
+    ],
+  };
+  const trace = healthyTrace();
+  trace.tools.push({ id: "t2", name: "write_file", args: {}, result: null, ok: true, latencyMs: 1 });
+  const sec = deriveSecurity(c, trace);
+  assert.equal(sec.no_unauthorized_mutation, true);
+});
+
+test("deriveSecurity：未声明 mutating_tools → 默认放行", () => {
+  const trace = healthyTrace();
+  trace.tools.push({ id: "t2", name: "write_file", args: {}, result: null, ok: true, latencyMs: 1 });
+  const sec = deriveSecurity(GRADE_CONTRACT, trace);
+  assert.equal(sec.no_unauthorized_mutation, true);
+});
+
+test("grade：mutating_tools 违规 → 安全门控未通过，报告标注", () => {
+  const dir = makeTmpDir();
+  try {
+    const c: Contract = { ...GRADE_CONTRACT, mutating_tools: ["write_file"] };
+    const trace = healthyTrace();
+    trace.tools.push({ id: "t2", name: "write_file", args: {}, result: null, ok: true, latencyMs: 1 });
+    const { contractPath, runDir } = writeGradeFixture(dir, c, trace);
+    const report = gradeCommand({ contractPath, runDir });
+    assert.ok(report.includes("未授权变更=有"));
+    assert.ok(report.includes("安全门控：未通过"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---- no_prompt_leak：系统提示词泄漏检测 ----

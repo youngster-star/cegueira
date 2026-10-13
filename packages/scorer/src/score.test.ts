@@ -10,6 +10,7 @@ import {
   score,
   sOutcome,
   sRubric,
+  type ScoreInput,
   type SecurityChecks,
 } from "./index.js";
 
@@ -83,6 +84,22 @@ test("outcome 门控：min < 0.30 驳回", () => {
   });
   assert.equal(r.gates.outcome.passed, false);
   assert.equal(r.gates.outcome.min, 0.29);
+});
+
+test("outcomeMin：可覆盖阈值，且不影响 FinalScore", () => {
+  const base: ScoreInput = { outcomeSamples: [0.29], process: 0.9, security: PASS_SECURITY };
+  // 阈值放宽到 0.2 → 通过
+  const loose = score({ ...base, outcomeMin: 0.2 });
+  assert.equal(loose.gates.outcome.passed, true);
+  // 阈值收紧到 0.5 → 驳回
+  const tight = score({ ...base, outcomeMin: 0.5 });
+  assert.equal(tight.gates.outcome.passed, false);
+  // 非法阈值退回默认 0.3 → 驳回（不静默放行）
+  const bad = score({ ...base, outcomeMin: 0 });
+  assert.equal(bad.gates.outcome.passed, false);
+  // outcome 门控不参与 FinalScore：三种阈值下最终分相同
+  assert.equal(loose.finalScore, tight.finalScore);
+  assert.equal(loose.finalScore, bad.finalScore);
 });
 
 test("penalty 从 S_core 扣除并 clamp 到 0", () => {

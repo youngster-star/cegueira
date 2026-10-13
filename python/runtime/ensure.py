@@ -12,6 +12,10 @@ from pathlib import Path
 
 # 默认 venv 目录名
 DEFAULT_VENV_DIR = ".venv"
+# 依赖安装成功标记：仅当 requirements.txt 安装成功后写入。
+# 缺了它就无法区分「venv 建好了但 pip 失败」与「装好了」——前者若不重装，
+# 会把一次失败永久掩盖（venv 目录已含 pyvenv.cfg，is_valid_venv 会一直为真）。
+DEPS_MARKER = ".ceg-deps-ok"
 
 
 def venv_python(venv_dir: Path) -> Path:
@@ -40,19 +44,24 @@ def ensure_venv(agent_dir: Path, venv_dir: Path | None = None) -> Path:
         subprocess.CalledProcessError: pip 安装失败时抛出（由上层转为可诊断错误）。
     """
     vdir = venv_dir or (agent_dir / DEFAULT_VENV_DIR)
+    req = agent_dir / "requirements.txt"
+    marker = vdir / DEPS_MARKER
 
-    if is_valid_venv(vdir):
+    # 已有可用 venv，且（无依赖要装 或 依赖已装成功）→ 直接复用。
+    if is_valid_venv(vdir) and (not req.exists() or marker.exists()):
         return vdir
 
-    vdir.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([sys.executable, "-m", "venv", str(vdir)], check=True)
+    if not is_valid_venv(vdir):
+        vdir.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run([sys.executable, "-m", "venv", str(vdir)], check=True)
 
-    req = agent_dir / "requirements.txt"
     if req.exists():
+        # pip 失败会抛异常且不写 marker；下次调用据此重试，而不是静默复用半成品。
         subprocess.run(
             [str(venv_python(vdir)), "-m", "pip", "install", "-r", str(req)],
             check=True,
         )
+        marker.write_text("ok", encoding="utf-8")
 
     return vdir
 

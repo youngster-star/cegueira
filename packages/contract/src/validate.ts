@@ -95,6 +95,17 @@ export function validateContract(c: Contract): CheckResult {
       }
     }
   }
+
+  if (c.mutating_tools !== undefined) {
+    if (!Array.isArray(c.mutating_tools)) {
+      return { ok: false, reason: "mutating_tools 若给出须为字符串数组" };
+    }
+    for (const t of c.mutating_tools) {
+      if (typeof t !== "string" || t.trim().length === 0) {
+        return { ok: false, reason: "mutating_tools 的元素须为非空字符串" };
+      }
+    }
+  }
   return { ok: true };
 }
 
