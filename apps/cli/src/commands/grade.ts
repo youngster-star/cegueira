@@ -42,6 +42,7 @@ import {
 import type { AgentTrace, EfficiencyMetrics } from "@cegueira/trace";
 import { parseRecording } from "@cegueira/trace/load";
 import { recordScore } from "./history.js";
+import { scanPath } from "./scan.js";
 
 /** 从录制目录载入 AgentTrace：优先 manifest.json，否则从三件套归一化。 */
 export function loadTrace(runDir: string): AgentTrace {
@@ -179,6 +180,8 @@ export interface GradeOptions {
   caseId?: string;
   /** ceg rubric --out 产出的评审结果 JSON；提供则用其 scores 作为 S_rubric 采样。 */
   rubricScoresPath?: string;
+  /** Agent 源码路径；提供则在报告中附 L1 静态证据（PRD §4.1 三层证据，advisory）。 */
+  sourcePath?: string;
 }
 
 /** 读取 S_rubric 采样：接受 `{scores:[...]}` 或裸数组。 */
@@ -377,6 +380,26 @@ export function gradeCommand(opts: GradeOptions): string {
 
   if (antiCheat) {
     lines.push("", ...renderAntiCheat(antiCheat));
+  }
+
+  // L1 静态证据（advisory）：补全 PRD §4.1 的三层证据，不进入 FinalScore。
+  if (opts.sourcePath !== undefined) {
+    const { hits, weaknessScore } = scanPath(opts.sourcePath);
+    const counts = { high: 0, medium: 0, low: 0 };
+    for (const h of hits) counts[h.severity]++;
+    lines.push(
+      "",
+      `L1 静态证据（${opts.sourcePath}）：加权弱点计数 ${weaknessScore.toFixed(2)} ` +
+        `[high=${counts.high} medium=${counts.medium} low=${counts.low} total=${hits.length}]`,
+    );
+    const top = hits.filter((h) => h.severity === "high").slice(0, 10);
+    for (const h of top) {
+      lines.push(`  [high] ${h.file}:${h.line} ${h.category} — ${h.message}`);
+    }
+    if (hits.length > top.length) {
+      lines.push(`  …其余 ${hits.length - top.length} 条见 ceg scan`);
+    }
+    lines.push("说明：L1 为确定性证据层，不计入 FinalScore。");
   }
 
   if (storeDir) {

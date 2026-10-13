@@ -1097,6 +1097,22 @@ test("grade：cases.json 显示留出集缺失 → 检出作弊", () => {
   }
 });
 
+test("grade：--source 附 L1 静态证据（advisory，不改分）", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
+    const src = join(dir, "src");
+    mkdirSync(src, { recursive: true });
+    writeFileSync(join(src, "app.py"), 'KEY = "sk-ABCDEFGHIJKLMNOPQRSTUVWX1234567890"\n');
+    const report = gradeCommand({ contractPath, runDir, sourcePath: src });
+    assert.ok(report.includes("L1 静态证据"));
+    assert.ok(report.includes("hardcoded_api_key"));
+    assert.ok(report.includes("不计入 FinalScore"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("loadTrace：无 manifest 时从三件套归一化", () => {
   const dir = makeTmpDir();
   try {
