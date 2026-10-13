@@ -16,6 +16,7 @@ import {
   deriveSecurity,
   detectPromptLeak,
   gradeCommand,
+  loadRubricSamples,
   loadTrace,
   renderAntiCheat,
   toEvalCases,
@@ -30,6 +31,7 @@ import {
 import {
   COMPLETION_TOKEN_EST,
   defaultProviderFactory,
+  median,
   parseRubricFile,
   rubricCommand,
   type ProviderFactory,
@@ -427,6 +429,67 @@ test("profileCommand：空库提示先评分", () => {
   const dir = makeTmpDir();
   try {
     assert.ok(profileCommand({ storeDir: dir }).includes("暂无评分"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- S_rubric 管道：ceg rubric --out → ceg grade --rubric-scores ----
+
+test("median：奇数取中位、偶数取中间均值", () => {
+  assert.equal(median([0.9, 0.5, 0.7]), 0.7);
+  assert.equal(median([0.5, 1.0]), 0.75);
+});
+
+test("rubricCommand：--out 写出评审结果 JSON", async () => {
+  const dir = makeTmpDir();
+  try {
+    const { rubricPath, artifactPath } = writeRubricFixture(dir);
+    const outPath = join(dir, "scores.json");
+    const factory: ProviderFactory = () => [
+      { id: "a", async chat() { return { content: '{"rating":5}' }; } }, // 1.0
+      { id: "b", async chat() { return { content: '{"rating":3}' }; } }, // 0.5
+    ];
+    const report = await rubricCommand(
+      { rubricPath, artifactPath, confirmed: true, llms: ["a", "b"], outPath },
+      factory,
+    );
+    assert.ok(report.includes("已写出评审结果"));
+    const saved = JSON.parse(readFileSync(outPath, "utf8")) as { scores: number[]; median: number };
+    assert.deepEqual(saved.scores, [0.75]); // median(1.0, 0.5)
+    assert.equal(saved.median, 0.75);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadRubricSamples：接受对象/裸数组，拒绝越界", () => {
+  const dir = makeTmpDir();
+  try {
+    const p = join(dir, "s.json");
+    writeFileSync(p, JSON.stringify([0.2, 0.8]));
+    assert.deepEqual(loadRubricSamples(p), [0.2, 0.8]);
+    writeFileSync(p, JSON.stringify({ scores: [0.5] }));
+    assert.deepEqual(loadRubricSamples(p), [0.5]);
+    writeFileSync(p, JSON.stringify({ scores: [2] }));
+    assert.throws(() => loadRubricSamples(p), /0–1/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("grade：--rubric-scores 把 S_rubric 接入最终分（否则占位 0.5）", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
+    const scoresPath = join(dir, "scores.json");
+    writeFileSync(scoresPath, JSON.stringify({ scores: [1.0] }));
+    const withRubric = gradeCommand({ contractPath, runDir, rubricScoresPath: scoresPath });
+    assert.ok(withRubric.includes("S_rubric：1 项采样"));
+    assert.ok(withRubric.includes("rubric=1.000"));
+    const without = gradeCommand({ contractPath, runDir });
+    assert.ok(without.includes("rubric=0.500"));
+    assert.ok(without.includes("占位 0.5"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

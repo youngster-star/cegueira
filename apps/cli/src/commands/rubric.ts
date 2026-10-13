@@ -18,7 +18,7 @@
  * 单测不能真连 LLM。`rubricCommand` 接受一个 provider 工厂，测试注入假 provider
  * 即可验证「预览拦截 → 确认 → 评审 → 报告」全链路，不触网。
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createBudget } from "@cegueira/budget";
 import {
   createAnthropicProvider,
@@ -44,6 +44,8 @@ export interface RubricOptions {
   confirmed?: boolean;
   /** 预估 token 预算上限（--budget）。缺省则不启用三级守卫。 */
   budgetTokens?: number;
+  /** 把评审结果写入 JSON（供 ceg grade --rubric-scores 消费）。 */
+  outPath?: string;
 }
 
 /** 每次评审调用预留的补全 token 粗估（评分理由 + 1–5 评级，宽松取值）。 */
@@ -101,6 +103,13 @@ export function parseRubricFile(text: string): RubricPrompt[] {
 
 function mean(values: number[]): number {
   return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+/** 中位数（偶数个取中间两者均值）。 */
+export function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 /** 执行评审，返回报告文本。 */
@@ -168,5 +177,23 @@ export async function rubricCommand(
     "",
     ...previewLines,
   ];
+
+  if (opts.outPath !== undefined) {
+    // 供 ceg grade --rubric-scores 消费：samples 原样存，median 便于人读。
+    writeFileSync(
+      opts.outPath,
+      JSON.stringify(
+        {
+          scores,
+          median: median(scores),
+          items: items.map((it, i) => ({ id: it.id, score: scores[i] })),
+          metric: "s_rubric",
+        },
+        null,
+        2,
+      ),
+    );
+    lines.push(`已写出评审结果：${opts.outPath}`);
+  }
   return lines.join("\n");
 }

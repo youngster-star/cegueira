@@ -177,6 +177,27 @@ export interface GradeOptions {
   ranCases?: string[];
   /** 逐 case 录制目录下，指定用哪个 case 的轨迹评分（缺省取第一个成功的 case）。 */
   caseId?: string;
+  /** ceg rubric --out 产出的评审结果 JSON；提供则用其 scores 作为 S_rubric 采样。 */
+  rubricScoresPath?: string;
+}
+
+/** 读取 S_rubric 采样：接受 `{scores:[...]}` 或裸数组。 */
+export function loadRubricSamples(path: string): number[] {
+  const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  const arr = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as { scores?: unknown }).scores)
+      ? (raw as { scores: unknown[] }).scores
+      : null;
+  if (arr === null || arr.length === 0) {
+    throw new Error(`${path} 应为非空数组或含非空 scores 数组的对象`);
+  }
+  for (const v of arr) {
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
+      throw new Error(`${path} 的采样须为 0–1 的数字，实际 ${JSON.stringify(v)}`);
+    }
+  }
+  return arr as number[];
 }
 
 /** 评分报告文本。 */
@@ -216,6 +237,9 @@ export function gradeCommand(opts: GradeOptions): string {
     ? (JSON.parse(securityJson) as Partial<SecurityChecks>)
     : undefined;
   const security = deriveSecurity(contract, primaryTrace, override);
+  // S_rubric 采样：由 ceg rubric --out 提供；缺省则为占位 0.5。
+  const rubricSamples =
+    opts.rubricScoresPath !== undefined ? loadRubricSamples(opts.rubricScoresPath) : undefined;
 
   // no_prompt_leak：逐 case 扫描，任一 case 泄漏即判泄漏。
   const leak =
@@ -259,7 +283,7 @@ export function gradeCommand(opts: GradeOptions): string {
   // 逐 case 评分 → 聚合（多 case 时 S_outcome 取 min，过程分按步数加权）。
   const perCase = caseEntries.map((e) => ({
     id: e.id,
-    ts: scoreFromTrace(contract, e.trace, { security }),
+    ts: scoreFromTrace(contract, e.trace, { security, rubricSamples }),
   }));
   const single = perCase.length === 1;
   let result: ScoreResult;
@@ -280,6 +304,7 @@ export function gradeCommand(opts: GradeOptions): string {
       outcomeSamples: perCase.map((p) => p.ts.outcome.rate),
       process,
       semantic,
+      rubricSamples,
       security,
     });
     outcome = perCase[0].ts.outcome;
@@ -295,6 +320,10 @@ export function gradeCommand(opts: GradeOptions): string {
     "⚠ no_unauthorized_mutation 未接入，默认放行）";
   const outcomeGateLine =
     `结果门控：${result.gates.outcome.passed ? "通过" : "驳回"}（outcome min=${result.gates.outcome.min.toFixed(3)}）`;
+  const rubricNote =
+    rubricSamples === undefined
+      ? "S_rubric：占位 0.5（用 ceg rubric --out scores.json 提供采样）"
+      : `S_rubric：${rubricSamples.length} 项采样取自 ${opts.rubricScoresPath}`;
 
   const lines: string[] = [];
   if (single) {
@@ -320,6 +349,7 @@ export function gradeCommand(opts: GradeOptions): string {
       `最终得分（预览）：${result.finalScore}`,
       `S_core：${result.sCore.toFixed(4)}`,
       `维度：outcome=${d.outcome.toFixed(3)} process=${d.process.toFixed(3)} semantic=${d.semantic.toFixed(3)} rubric=${d.rubric.toFixed(3)}`,
+      rubricNote,
       securityLine,
       outcomeGateLine,
       `过程指标：steps=${metrics.steps} 工具选择=${metrics.toolChoiceAccuracy.toFixed(3)} 参数=${metrics.paramCorrectness.toFixed(3)} 成功率=${metrics.successRate.toFixed(3)} 冗余=${metrics.stepRedundancy.toFixed(3)} 循环=${metrics.loopCount}`,
@@ -339,6 +369,7 @@ export function gradeCommand(opts: GradeOptions): string {
       `最终得分（预览）：${result.finalScore}`,
       `S_core：${result.sCore.toFixed(4)}`,
       `维度（跨 case 聚合）：outcome=${d.outcome.toFixed(3)} process=${d.process.toFixed(3)} semantic=${d.semantic.toFixed(3)} rubric=${d.rubric.toFixed(3)}`,
+      rubricNote,
       securityLine,
       outcomeGateLine,
     );
