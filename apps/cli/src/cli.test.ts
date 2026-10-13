@@ -18,6 +18,7 @@ import {
   recordCommand,
   type SpawnResult,
 } from "./commands/record.js";
+import { collectPythonFiles, scanCommand, scanPath } from "./commands/scan.js";
 import { submitCommand } from "./commands/submit.js";
 import type { Contract } from "@cegueira/contract";
 import type { AgentTrace } from "@cegueira/trace";
@@ -106,6 +107,76 @@ test("doctor 自检返回文本", () => {
   const out = doctorCommand();
   assert.ok(out.includes("node"));
   assert.ok(out.includes("python"));
+});
+
+// ---- ceg scan：L1 静态分析 ----
+
+/** 造一棵含可扫描文件与应被跳过目录的树。 */
+function writeScanTree(dir: string): string {
+  const src = join(dir, "src");
+  mkdirSync(join(src, "sub"), { recursive: true });
+  mkdirSync(join(src, "node_modules"), { recursive: true });
+  writeFileSync(join(src, "a.py"), 'key = "sk-abcdefghijklmnop123456"\n');
+  writeFileSync(join(src, "sub", "b.py"), "eval(x)\n");
+  writeFileSync(join(src, "node_modules", "c.py"), "eval(y)\n");
+  writeFileSync(join(src, "readme.md"), "eval(not_python)\n");
+  return src;
+}
+
+test("collectPythonFiles：只收 .py，跳过 node_modules，结果排序", () => {
+  const dir = makeTmpDir();
+  try {
+    const src = writeScanTree(dir);
+    const files = collectPythonFiles(src).map((f) => f.replace(/\\/g, "/"));
+    assert.equal(files.length, 2);
+    assert.ok(files[0].endsWith("/src/a.py"));
+    assert.ok(files[1].endsWith("/src/sub/b.py"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("collectPythonFiles：非 .py 文件不扫", () => {
+  const dir = makeTmpDir();
+  try {
+    const md = join(dir, "x.md");
+    writeFileSync(md, "eval()\n");
+    assert.deepEqual(collectPythonFiles(md), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("scanPath：命中规则并累计加权弱点计数", () => {
+  const dir = makeTmpDir();
+  try {
+    const { hits, weaknessScore } = scanPath(writeScanTree(dir));
+    const categories = hits.map((h) => h.category).sort();
+    assert.deepEqual(categories, ["dangerous_eval", "hardcoded_api_key"]);
+    // high=1 (key) + high=1 (eval) = 2
+    assert.equal(weaknessScore, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("scanCommand：报告含定位与说明；干净路径报未发现", () => {
+  const dir = makeTmpDir();
+  try {
+    const src = writeScanTree(dir);
+    const report = scanCommand(src);
+    assert.ok(report.includes("hardcoded_api_key"));
+    assert.ok(report.includes("dangerous_eval"));
+    assert.ok(report.includes("total=2"));
+    assert.ok(report.includes("不计入 FinalScore"));
+
+    const clean = join(dir, "clean");
+    mkdirSync(clean);
+    writeFileSync(join(clean, "ok.py"), "def add(a, b):\n    return a + b\n");
+    assert.ok(scanCommand(clean).includes("未发现"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---- ceg record：Node 编排 Python 录制器 ----

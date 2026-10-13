@@ -181,6 +181,9 @@ importers:
       '@cegueira/scorer':
         specifier: workspace:*
         version: link:../../packages/scorer
+      '@cegueira/static-analysis':
+        specifier: workspace:*
+        version: link:../../packages/static-analysis
       '@cegueira/trace':
         specifier: workspace:*
         version: link:../../packages/trace
