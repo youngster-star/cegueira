@@ -7,6 +7,7 @@ import { gradeCommand } from "./commands/grade.js";
 import { historyCommand } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
 import { recordCommand } from "./commands/record.js";
+import { rubricCommand } from "./commands/rubric.js";
 import { scanCommand } from "./commands/scan.js";
 import { submitCommand } from "./commands/submit.js";
 
@@ -19,6 +20,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
   record   跑一次 Agent 并落录制产物（--agent <目录> --out <录制目录>）
   grade    契约 + 录制目录 → 评分报告（--contract <contract.json> --run <录制目录>）
   scan     L1 静态分析（--path <文件或目录>）
+  rubric   LLM 评审 rubric 维度（--rubric <json> --artifact <文件> [--llm a,b] [--yes]）
   history  评分历史（--store <数据目录> [--project <id>]）
   submit   提交评分（--input <评分输入json>）
   doctor   环境自检
@@ -28,14 +30,15 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
   ceg record --agent ./my-agent --out recordings/run-1
   ceg grade --contract cegueira-contract/contract.json --run recordings/run-1 --store .ceg-data
   ceg scan --path ./my-agent
+  ceg rubric --rubric cegueira-contract/rubrics.json --artifact ./my-agent/main.py --yes
   ceg history --store .ceg-data
   ceg submit --input score-input.json
   ceg doctor
 `;
 
 /** 命令分发。 */
-export function run(argv: string[]): void {
-  const { command, options } = parseArgs(argv);
+export async function run(argv: string[]): Promise<void> {
+  const { command, options, flags } = parseArgs(argv);
   switch (command) {
     case "init": {
       const direction = options.direction ?? options.d ?? "RAG 问答 Agent";
@@ -80,6 +83,27 @@ export function run(argv: string[]): void {
       const path = options.path ?? options.p;
       if (!path) throw new Error("scan 需要 --path <文件或目录>");
       console.log(scanCommand(path));
+      break;
+    }
+    case "rubric": {
+      const rubric = options.rubric;
+      const artifact = options.artifact;
+      if (!rubric) throw new Error("rubric 需要 --rubric <rubric.json>");
+      if (!artifact) throw new Error("rubric 需要 --artifact <被评审文件>");
+      const llms = options.llm ? options.llm.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+      const purpose = options.purpose === "generation" ? "generation" : "review";
+      console.log(
+        await rubricCommand({
+          rubricPath: rubric,
+          artifactPath: artifact,
+          llms,
+          model: options.model,
+          baseUrl: options["base-url"],
+          apiKey: options["api-key"],
+          purpose,
+          confirmed: flags.has("yes"),
+        }),
+      );
       break;
     }
     case "submit": {

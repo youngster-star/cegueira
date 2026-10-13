@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "@cegueira/contract": "workspace:*",
+    "@cegueira/llm": "workspace:*",
     "@cegueira/persistence": "workspace:*",
+    "@cegueira/privacy": "workspace:*",
     "@cegueira/scorer": "workspace:*",
     "@cegueira/static-analysis": "workspace:*",
     "@cegueira/trace": "workspace:*"

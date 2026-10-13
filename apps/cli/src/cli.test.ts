@@ -20,6 +20,12 @@ import {
 import { historyCommand, recordScore } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
 import {
+  defaultProviderFactory,
+  parseRubricFile,
+  rubricCommand,
+  type ProviderFactory,
+} from "./commands/rubric.js";
+import {
   findPython,
   findRepoRoot,
   parseSummary,
@@ -115,6 +121,80 @@ test("doctor 自检返回文本", () => {
   const out = doctorCommand();
   assert.ok(out.includes("node"));
   assert.ok(out.includes("python"));
+});
+
+// ---- ceg rubric：隐私预览 + 跨家族 LLM 评审 ----
+
+function writeRubricFixture(dir: string): { rubricPath: string; artifactPath: string } {
+  const rubricPath = join(dir, "rubrics.json");
+  writeFileSync(
+    rubricPath,
+    JSON.stringify({ rubrics: [{ id: "clarity", prompt: "评估提示工程是否清晰" }] }),
+  );
+  const artifactPath = join(dir, "artifact.py");
+  // 含一个邮箱，用于验证脱敏在预览里发生
+  writeFileSync(artifactPath, "def answer(q):\n    return q  # contact dev@example.com\n");
+  return { rubricPath, artifactPath };
+}
+
+test("parseRubricFile：接受数组与 {rubrics}，拒绝空与坏形状", () => {
+  assert.deepEqual(parseRubricFile('[{"id":"a","prompt":"p"}]'), [{ id: "a", prompt: "p" }]);
+  assert.deepEqual(parseRubricFile('{"rubrics":[{"id":"a","prompt":"p"}]}'), [
+    { id: "a", prompt: "p" },
+  ]);
+  assert.throws(() => parseRubricFile("{}"), /数组或含 rubrics/);
+  assert.throws(() => parseRubricFile("[]"), /不能为空/);
+  assert.throws(() => parseRubricFile('[{"id":"a"}]'), /字符串 id 与 prompt/);
+});
+
+test("defaultProviderFactory：未知 provider 报错", () => {
+  assert.throws(() => defaultProviderFactory(["bogus"], {}), /未知 LLM provider：bogus/);
+});
+
+test("rubricCommand：未 --yes 时只出外发预览，不调用 provider", async () => {
+  const dir = makeTmpDir();
+  try {
+    const { rubricPath, artifactPath } = writeRubricFixture(dir);
+    let factoryCalled = false;
+    const factory: ProviderFactory = () => {
+      factoryCalled = true;
+      return [];
+    };
+    const report = await rubricCommand({ rubricPath, artifactPath }, factory);
+    assert.ok(report.includes("外发预览"));
+    assert.ok(report.includes("尚未外发"));
+    assert.equal(factoryCalled, false, "未确认前不得调用 provider");
+    // 脱敏在预览阶段就要体现
+    assert.ok(report.includes("脱敏命中"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("rubricCommand：--yes 后跨家族评审，逐维度取中位数", async () => {
+  const dir = makeTmpDir();
+  try {
+    const { rubricPath, artifactPath } = writeRubricFixture(dir);
+    let capturedIds: string[] = [];
+    const factory: ProviderFactory = (ids) => {
+      capturedIds = ids;
+      return [
+        { id: "famA", async chat() { return { content: '{"rating":5}' }; } }, // 1.0
+        { id: "famB", async chat() { return { content: '{"rating":3}' }; } }, // 0.5
+      ];
+    };
+    const report = await rubricCommand(
+      { rubricPath, artifactPath, confirmed: true, llms: ["famA", "famB"] },
+      factory,
+    );
+    assert.deepEqual(capturedIds, ["famA", "famB"]);
+    // median(1.0, 0.5) = 0.75
+    assert.ok(report.includes("0.750"));
+    assert.ok(report.includes("[clarity]"));
+    assert.ok(report.includes("S_rubric 维度均值"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---- 评分落库与历史（ceg grade --store / ceg history） ----
