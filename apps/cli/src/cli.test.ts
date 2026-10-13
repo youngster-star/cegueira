@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "./args.js";
@@ -10,6 +17,7 @@ import {
   gradeCommand,
   loadTrace,
 } from "./commands/grade.js";
+import { historyCommand, recordScore } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
 import {
   findPython,
@@ -107,6 +115,69 @@ test("doctor 自检返回文本", () => {
   const out = doctorCommand();
   assert.ok(out.includes("node"));
   assert.ok(out.includes("python"));
+});
+
+// ---- 评分落库与历史（ceg grade --store / ceg history） ----
+
+const SCORE_RESULT = {
+  dimensions: { outcome: 1, process: 0.8, semantic: 1, rubric: 0.5 },
+  sCore: 0.85,
+  gates: { security: { passed: true, violations: [] }, outcome: { passed: true, min: 1 } },
+  finalScore: 88.5,
+};
+
+test("recordScore：写入项目快照与评分记录，重复评分 upsert 项目", () => {
+  const dir = makeTmpDir();
+  try {
+    const store = join(dir, "data");
+    const s1 = recordScore(store, GRADE_CONTRACT, SCORE_RESULT, {
+      now: "2026-10-13T00:00:00.000Z",
+      id: "score-1",
+    });
+    assert.equal(s1.projectId, GRADE_CONTRACT.project_id);
+    assert.equal(s1.finalScore, 88.5);
+
+    recordScore(store, GRADE_CONTRACT, SCORE_RESULT, {
+      now: "2026-10-13T01:00:00.000Z",
+      id: "score-2",
+    });
+
+    // 两条评分、一个项目（upsert 不新增；createdAt 保持首次）
+    const projects = JSON.parse(readFileSync(join(store, "projects.json"), "utf8"));
+    const scores = JSON.parse(readFileSync(join(store, "scores.json"), "utf8"));
+    assert.equal(projects.length, 1);
+    assert.equal(projects[0].createdAt, "2026-10-13T00:00:00.000Z");
+    assert.equal(projects[0].updatedAt, "2026-10-13T01:00:00.000Z");
+    assert.equal(scores.length, 2);
+
+    const report = historyCommand(store);
+    assert.ok(report.includes("共 2 条"));
+    assert.ok(report.includes("88.5"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("historyCommand：无记录时给出明确提示", () => {
+  const dir = makeTmpDir();
+  try {
+    assert.ok(historyCommand(join(dir, "empty")).includes("无记录"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("grade --store：报告中提示已落库，history 可查", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
+    const store = join(dir, "data");
+    const report = gradeCommand(contractPath, runDir, undefined, store);
+    assert.ok(report.includes("已保存评分"));
+    assert.ok(historyCommand(store).includes("共 1 条"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---- ceg scan：L1 静态分析 ----

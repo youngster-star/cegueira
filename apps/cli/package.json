@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cegueira/contract": "workspace:*",
+    "@cegueira/persistence": "workspace:*",
     "@cegueira/scorer": "workspace:*",
     "@cegueira/static-analysis": "workspace:*",
     "@cegueira/trace": "workspace:*"

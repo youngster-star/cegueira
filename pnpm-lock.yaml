@@ -178,6 +178,9 @@ importers:
       '@cegueira/contract':
         specifier: workspace:*
         version: link:../../packages/contract
+      '@cegueira/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
       '@cegueira/scorer':
         specifier: workspace:*
         version: link:../../packages/scorer

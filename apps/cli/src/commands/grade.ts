@@ -24,6 +24,7 @@ import { validateContract, type Contract } from "@cegueira/contract";
 import { scoreFromTrace, type SecurityChecks } from "@cegueira/scorer";
 import type { AgentTrace } from "@cegueira/trace";
 import { parseRecording } from "@cegueira/trace/load";
+import { recordScore } from "./history.js";
 
 /** 从录制目录载入 AgentTrace：优先 manifest.json，否则从三件套归一化。 */
 export function loadTrace(runDir: string): AgentTrace {
@@ -84,6 +85,7 @@ export function gradeCommand(
   contractPath: string,
   runDir: string,
   securityJson?: string,
+  storeDir?: string,
 ): string {
   const contract = JSON.parse(readFileSync(contractPath, "utf8")) as Contract;
   const check = validateContract(contract);
@@ -127,5 +129,10 @@ export function gradeCommand(
     `验收明细：`,
     ...taskLines,
   ];
+
+  if (storeDir) {
+    const saved = recordScore(storeDir, contract, result);
+    lines.push(`已保存评分 ${saved.id}（project=${saved.projectId}）到 ${storeDir}`);
+  }
   return lines.join("\n");
 }
