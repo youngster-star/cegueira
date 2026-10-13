@@ -176,15 +176,34 @@ def _spans_to_trace(spans: list) -> tuple:
             raise ManifestError(f"{where} 是 RETRIEVAL span，但 attributes 缺 query")
         if attrs.get("returned_doc_ids") is None:
             raise ManifestError(f"{where} 是 RETRIEVAL span，但 attributes 缺 returned_doc_ids")
-        retrievals.append(
-            {
-                "id": span_id,
-                "query": _str(attrs["query"], f"{where}.attributes.query"),
-                "returnedDocIds": _str_list(
-                    attrs["returned_doc_ids"], f"{where}.attributes.returned_doc_ids"
-                ),
-            }
-        )
+        call = {
+            "id": span_id,
+            "query": _str(attrs["query"], f"{where}.attributes.query"),
+            "returnedDocIds": _str_list(
+                attrs["returned_doc_ids"], f"{where}.attributes.returned_doc_ids"
+            ),
+        }
+        # 可选：命中文档正文（供 answer.text 数据流断言）。缺省不加键，
+        # 保持与 load.ts 的键集一致（往返断言依赖）。
+        docs = attrs.get("returned_docs")
+        if docs is not None:
+            _require(
+                isinstance(docs, list), f"{where}.attributes.returned_docs 应为数组"
+            )
+            call["returnedDocs"] = [
+                {
+                    "id": _str(
+                        _obj(d, f"{where}.attributes.returned_docs[{j}]").get("id"),
+                        f"{where}.attributes.returned_docs[{j}].id",
+                    ),
+                    "text": _str(
+                        _obj(d, f"{where}.attributes.returned_docs[{j}]").get("text"),
+                        f"{where}.attributes.returned_docs[{j}].text",
+                    ),
+                }
+                for j, d in enumerate(docs)
+            ]
+        retrievals.append(call)
 
     return llm_spans, retrievals, ignored
 

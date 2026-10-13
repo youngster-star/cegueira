@@ -24,12 +24,23 @@ export interface LlmSpan {
   latencyMs: number;
 }
 
+/** 检索命中的文档（id + 正文），供 `answer.text` 数据流断言做字面支撑判定。 */
+export interface RetrievedDoc {
+  id: string;
+  text: string;
+}
+
 /** 检索调用（trace.json 的 retrieval span）。 */
 export interface RetrievalCall {
   id: string;
   query: string;
   /** 命中的文档 id 列表。 */
   returnedDocIds: string[];
+  /**
+   * 命中文档的正文（**可选**）。给出后 `answer.text` 数据流断言才可判定
+   * 「答案是否有检索内容支撑」；缺失则跳过该断言（不误报）。
+   */
+  returnedDocs?: RetrievedDoc[];
 }
 
 /** HTTP 请求-响应对（http.yaml 条目，按请求指纹存储）。 */

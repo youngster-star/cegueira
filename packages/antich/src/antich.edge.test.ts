@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { detectCheat } from "./index.js";
 import { rewritePrompt } from "./rewrite.js";
-import { checkDataFlow, extractIds } from "./dataflow.js";
+import { checkDataFlow, extractIds, extractStrings, textGroundedness } from "./dataflow.js";
 import { checkHoldout } from "./holdout.js";
 import { checkPerturbation } from "./perturb.js";
 import type { AgentTrace } from "@cegueira/trace";
@@ -66,12 +66,84 @@ test("checkDataFlow：缺少最终答案时判违规", () => {
   assert.ok(violations[0].includes("缺少最终答案"));
 });
 
-test("checkDataFlow：未实现的 field 跳过（不误报）", () => {
+test("checkDataFlow：未知 field 跳过（不误报）", () => {
   const violations = checkDataFlow(
     traceOf({ finalAnswer: { text: "x", citedDocIds: [] } }),
-    [{ source: "retrieval", field: "answer.text" }], // P2 未实现该 field
+    [{ source: "retrieval", field: "answer.unknown" }],
   );
   assert.deepEqual(violations, []);
+});
+
+test("checkDataFlow：answer.text 无来源正文时跳过（不误报）", () => {
+  const violations = checkDataFlow(
+    traceOf({ finalAnswer: { text: "一段足够长的答案文本内容", citedDocIds: [] } }),
+    [{ source: "retrieval", field: "answer.text" }],
+  );
+  assert.deepEqual(violations, []);
+});
+
+test("checkDataFlow：answer.text 有检索正文支撑 → 通过", () => {
+  const violations = checkDataFlow(
+    traceOf({
+      retrievals: [
+        {
+          id: "r1",
+          query: "q",
+          returnedDocIds: ["d1"],
+          returnedDocs: [{ id: "d1", text: "检索增强生成是一种结合检索与生成的技术" }],
+        },
+      ],
+      finalAnswer: { text: "检索增强生成结合了检索与生成", citedDocIds: ["d1"] },
+    }),
+    [{ source: "retrieval", field: "answer.text" }],
+  );
+  assert.deepEqual(violations, []);
+});
+
+test("checkDataFlow：answer.text 与检索正文零重叠 → 判疑似幻觉", () => {
+  const violations = checkDataFlow(
+    traceOf({
+      retrievals: [
+        {
+          id: "r1",
+          query: "q",
+          returnedDocIds: ["d1"],
+          returnedDocs: [{ id: "d1", text: "检索增强生成是一种结合检索与生成的技术" }],
+        },
+      ],
+      finalAnswer: { text: "苹果香蕉橙子葡萄西瓜柠檬柚子桃子", citedDocIds: [] },
+    }),
+    [{ source: "retrieval", field: "answer.text" }],
+  );
+  assert.equal(violations.length, 1);
+  assert.ok(violations[0].includes("疑似幻觉"));
+});
+
+test("checkDataFlow：answer.text 来源为工具返回的字符串", () => {
+  const violations = checkDataFlow(
+    traceOf({
+      tools: [
+        { id: "t1", name: "search", args: {}, result: { text: "检索增强生成是一种技术" }, ok: true, latencyMs: 1 },
+      ],
+      finalAnswer: { text: "苹果香蕉橙子葡萄西瓜柠檬柚子桃子", citedDocIds: [] },
+    }),
+    [{ source: "tool", field: "answer.text" }],
+  );
+  assert.equal(violations.length, 1);
+});
+
+test("extractStrings：递归收集对象/数组中的字符串", () => {
+  assert.deepEqual(
+    extractStrings({ a: "x", b: ["y", { c: "z" }], n: 3 }),
+    ["x", "y", "z"],
+  );
+});
+
+test("textGroundedness：无正文或答案过短 → null；完全一致 → 1", () => {
+  assert.equal(textGroundedness("abcd", []), null);
+  assert.equal(textGroundedness("ab", ["abcdefgh"]), null); // 答案 < 4 字符
+  assert.equal(textGroundedness("abcdefgh", ["abcdefgh"]), 1);
+  assert.equal(textGroundedness("abcdefgh", ["zzzzzzzz"]), 0);
 });
 
 test("checkDataFlow：tool 来源校验工具返回的 id", () => {

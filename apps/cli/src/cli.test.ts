@@ -1104,6 +1104,36 @@ test("grade --evalset：干净轨迹未被判作弊", () => {
   }
 });
 
+test("grade --evalset：answer.text 断言检出幻觉（无检索支撑）", () => {
+  const dir = makeTmpDir();
+  try {
+    const trace = healthyTrace();
+    trace.retrievals[0].returnedDocs = [
+      { id: "d1", text: "检索增强生成是一种结合检索与生成的技术" },
+    ];
+    trace.finalAnswer = { text: "苹果香蕉橙子葡萄西瓜柠檬柚子桃子", citedDocIds: [] };
+    const evalset: EvalSet = {
+      tests: [
+        {
+          id: "c1",
+          prompt: "什么是检索增强生成",
+          expected_outcome: "x",
+          data_flow_assertions: [{ source: "retrieval", field: "answer.text" }],
+          splits: "public",
+          rewrites: [],
+        },
+      ],
+    };
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, trace);
+    const evalsetPath = writeEvalset(dir, evalset);
+    const report = gradeCommand({ contractPath, runDir, evalsetPath });
+    assert.ok(report.includes("1 项违规"));
+    assert.ok(report.includes("检出作弊"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function writeCaseRun(
   baseDir: string,
   cases: { id: string; status: string }[],

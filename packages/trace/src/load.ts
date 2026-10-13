@@ -294,11 +294,25 @@ export function parseTraceJson(text: string): ParsedSpans {
     if (docIds === undefined) {
       fail(file, `${where} 是 RETRIEVAL span，但 attributes 缺 returned_doc_ids`);
     }
-    retrievals.push({
+    const call: RetrievalCall = {
       id,
       query: asString(query, file, `${where}.attributes.query`),
       returnedDocIds: asStringArray(docIds, file, `${where}.attributes.returned_doc_ids`),
-    });
+    };
+    // 可选：命中文档正文（供 answer.text 数据流断言）。缺省则不加键，
+    // 保持与 manifest.py 的键集一致（往返断言依赖）。
+    const docs = optional(attrs["returned_docs"]);
+    if (docs !== undefined) {
+      const arr = asArray(docs, file, `${where}.attributes.returned_docs`);
+      call.returnedDocs = arr.map((d, j) => {
+        const o = asObject(d, file, `${where}.attributes.returned_docs[${j}]`);
+        return {
+          id: asString(o["id"], file, `${where}.attributes.returned_docs[${j}].id`),
+          text: asString(o["text"], file, `${where}.attributes.returned_docs[${j}].text`),
+        };
+      });
+    }
+    retrievals.push(call);
   });
 
   return { llmSpans, retrievals, ignoredSpans };

@@ -126,6 +126,40 @@ test("parseTraceJson：LLM 与 RETRIEVAL span 分派到两个数组", () => {
   assert.equal(out.ignoredSpans, 0);
 });
 
+test("parseTraceJson：RETRIEVAL 可选 returned_docs → returnedDocs（缺省不加键）", () => {
+  const withDocs = {
+    ...RETRIEVAL_SPAN,
+    attributes: {
+      query: "rag",
+      returned_doc_ids: ["d1"],
+      returned_docs: [{ id: "d1", text: "检索增强生成" }],
+    },
+  };
+  const out = parseTraceJson(traceJson([withDocs]));
+  assert.deepEqual(out.retrievals, [
+    {
+      id: "span-1",
+      query: "rag",
+      returnedDocIds: ["d1"],
+      returnedDocs: [{ id: "d1", text: "检索增强生成" }],
+    },
+  ]);
+  // 无 returned_docs 时不出现该键
+  const plain = parseTraceJson(traceJson([RETRIEVAL_SPAN]));
+  assert.equal("returnedDocs" in plain.retrievals[0], false);
+});
+
+test("parseTraceJson：returned_docs 元素缺 text 时报错定位", () => {
+  const bad = {
+    ...RETRIEVAL_SPAN,
+    attributes: { query: "q", returned_doc_ids: ["d1"], returned_docs: [{ id: "d1" }] },
+  };
+  assert.match(
+    reject(() => parseTraceJson(traceJson([bad])), "trace.json"),
+    /returned_docs\[0\]\.text 应为字符串/,
+  );
+});
+
 test("parseTraceJson：kind 大小写不敏感", () => {
   const lower = { ...LLM_SPAN, kind: "llm" };
   const out = parseTraceJson(traceJson([lower]));

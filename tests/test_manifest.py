@@ -209,6 +209,35 @@ def test_retrieval_span_missing_attrs_raises():
             assert missing in str(e)
 
 
+def test_roundtrip_returned_docs():
+    """RETRIEVAL 携带 returned_docs（文档正文）时，两侧必须一致地归一化出 returnedDocs。"""
+    if NODE is None:
+        print("  ⚠ 跳过：PATH 上找不到 node")
+        return
+    s = RecordingSession(run_id="docs")
+    s.add_span(
+        "retrieve", "RETRIEVAL", 0.0, 1.0,
+        query="rag", returned_doc_ids=["d1"],
+        returned_docs=[{"id": "d1", "text": "检索增强生成"}],
+    )
+    trace = _roundtrip(s)
+    assert trace["retrievals"][0]["returnedDocs"] == [{"id": "d1", "text": "检索增强生成"}]
+
+
+def test_retrieval_returned_docs_malformed_raises():
+    """returned_docs 元素缺 text 必须报错——否则 answer.text 断言会静默失据。"""
+    s = RecordingSession(run_id="bad-docs")
+    s.add_span(
+        "retrieve", "RETRIEVAL", 0.0, 1.0,
+        query="q", returned_doc_ids=["d1"], returned_docs=[{"id": "d1"}],
+    )
+    try:
+        build_trace(s.http_records, s.spans, s.tool_io)
+        assert False, "应抛 ManifestError（缺 text）"
+    except ManifestError as e:
+        assert "text" in str(e)
+
+
 def test_final_answer_of_variants():
     """final_answer 的三种形态：完整 / 缺引用列表 / 整个缺失。"""
     assert final_answer_of(None) is None
