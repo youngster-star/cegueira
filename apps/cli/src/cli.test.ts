@@ -20,11 +20,18 @@ import {
 import { historyCommand, recordScore } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
 import {
+  calibrateCommand,
+  parseCalibrationFile,
+  renderCalibrationReport,
+} from "./commands/calibrate.js";
+import {
+  COMPLETION_TOKEN_EST,
   defaultProviderFactory,
   parseRubricFile,
   rubricCommand,
   type ProviderFactory,
 } from "./commands/rubric.js";
+import { processPrivacy } from "@cegueira/privacy";
 import {
   findPython,
   findRepoRoot,
@@ -195,6 +202,134 @@ test("rubricCommand：--yes 后跨家族评审，逐维度取中位数", async (
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---- ceg rubric：三级预算守卫（70/90/100） ----
+
+function rubricEstimate(artifactPath: string, items: number, providers: number): number {
+  const tokenEstimate = processPrivacy(readFileSync(artifactPath, "utf8"), "review").preview.tokenEstimate;
+  return items * providers * (tokenEstimate + COMPLETION_TOKEN_EST);
+}
+
+test("rubricCommand：预算 ≥100% 硬中断，不调用 provider", async () => {
+  const dir = makeTmpDir();
+  try {
+    const { rubricPath, artifactPath } = writeRubricFixture(dir);
+    let factoryCalled = false;
+    const factory: ProviderFactory = () => {
+      factoryCalled = true;
+      return [];
+    };
+    const report = await rubricCommand(
+      { rubricPath, artifactPath, confirmed: true, llms: ["a", "b"], budgetTokens: 1 },
+      factory,
+    );
+    assert.ok(report.includes("硬中断"));
+    assert.equal(factoryCalled, false, "硬中断后不得发起调用");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("rubricCommand：预算 ≥90% 降级为单家族", async () => {
+  const dir = makeTmpDir();
+  try {
+    const { rubricPath, artifactPath } = writeRubricFixture(dir);
+    const est = rubricEstimate(artifactPath, 1, 2);
+    let capturedIds: string[] = [];
+    const factory: ProviderFactory = (ids) => {
+      capturedIds = ids;
+      return ids.map((id) => ({ id, async chat() { return { content: '{"rating":3}' }; } }));
+    };
+    const report = await rubricCommand(
+      { rubricPath, artifactPath, confirmed: true, llms: ["famA", "famB"], budgetTokens: Math.round(est / 0.95) },
+      factory,
+    );
+    assert.deepEqual(capturedIds, ["famA"], "降级后只保留单家族");
+    assert.ok(report.includes("降级"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("rubricCommand：预算 ≥70% 警告但照常跨家族", async () => {
+  const dir = makeTmpDir();
+  try {
+    const { rubricPath, artifactPath } = writeRubricFixture(dir);
+    const est = rubricEstimate(artifactPath, 1, 2);
+    let capturedIds: string[] = [];
+    const factory: ProviderFactory = (ids) => {
+      capturedIds = ids;
+      return ids.map((id) => ({ id, async chat() { return { content: '{"rating":4}' }; } }));
+    };
+    const report = await rubricCommand(
+      { rubricPath, artifactPath, confirmed: true, llms: ["famA", "famB"], budgetTokens: Math.round(est / 0.8) },
+      factory,
+    );
+    assert.deepEqual(capturedIds, ["famA", "famB"]);
+    assert.ok(report.includes("警告"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- ceg calibrate：评分可信度校准 ----
+
+test("parseCalibrationFile：必填 samples，校验形状", () => {
+  const ok = parseCalibrationFile(
+    '{"samples":[{"id":"p1","predicted":4,"human":3}],"repeated":[{"id":"p1","first":4,"second":4}]}',
+  );
+  assert.equal(ok.samples.length, 1);
+  assert.equal(ok.repeated?.length, 1);
+  assert.throws(() => parseCalibrationFile("{}"), /非空 samples/);
+  assert.throws(() => parseCalibrationFile('{"samples":[]}'), /非空 samples/);
+  assert.throws(() => parseCalibrationFile('{"samples":[{"id":"p1"}]}'), /id\(string\)/);
+});
+
+test("calibrateCommand：高一致样本 → QWK 高，但样本量不足不通过", () => {
+  const dir = makeTmpDir();
+  try {
+    const labelsPath = join(dir, "labels.json");
+    writeFileSync(
+      labelsPath,
+      JSON.stringify({
+        samples: [
+          { id: "p1", predicted: 3, human: 3 },
+          { id: "p2", predicted: 4, human: 4 },
+          { id: "p3", predicted: 5, human: 5 },
+          { id: "p4", predicted: 4, human: 4 },
+        ],
+      }),
+    );
+    const report = calibrateCommand({ labelsPath });
+    assert.ok(report.includes("校准报告"));
+    assert.ok(report.includes("QWK"));
+    assert.ok(report.includes("校准样本量不足 200 条"));
+    assert.ok(report.includes("未通过"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("renderCalibrationReport：QWK 低于硬底线 → 明确禁用评分", () => {
+  // 预测全 1、人工全 6 → QWK 应为负（远低于硬底线 0.60）
+  const text = renderCalibrationReport({
+    metrics: { qwk: -0.5, decisionAccuracy: 0, falseRejectRate: 1, sampleSize: 200 },
+    decisionConsistency: 0.2,
+    repeatStdDev: { mean: 5, max: 9 },
+    checks: {
+      qwk_target: false,
+      qwk_hard_floor: false,
+      decision_accuracy: false,
+      decision_consistency: false,
+      false_reject: false,
+      repeat_stddev: false,
+      sample_size: true,
+    },
+    passed: false,
+    reasons: ["QWK 低于硬底线 0.60"],
+  });
+  assert.ok(text.includes("评分功能不启用"), "硬底线未达须明确禁用");
 });
 
 // ---- 评分落库与历史（ceg grade --store / ceg history） ----

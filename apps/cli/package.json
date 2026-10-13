@@ -11,6 +11,8 @@
     "test": "node --test \"dist/*.test.js\""
   },
   "dependencies": {
+    "@cegueira/budget": "workspace:*",
+    "@cegueira/calibration": "workspace:*",
     "@cegueira/contract": "workspace:*",
     "@cegueira/llm": "workspace:*",
     "@cegueira/persistence": "workspace:*",

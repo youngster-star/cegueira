@@ -175,6 +175,12 @@ importers:
 
   apps/cli:
     dependencies:
+      '@cegueira/budget':
+        specifier: workspace:*
+        version: link:../../packages/budget
+      '@cegueira/calibration':
+        specifier: workspace:*
+        version: link:../../packages/calibration
       '@cegueira/contract':
         specifier: workspace:*
         version: link:../../packages/contract

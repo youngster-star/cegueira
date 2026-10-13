@@ -6,6 +6,7 @@ import { doctorCommand } from "./commands/doctor.js";
 import { gradeCommand } from "./commands/grade.js";
 import { historyCommand } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
+import { calibrateCommand } from "./commands/calibrate.js";
 import { recordCommand } from "./commands/record.js";
 import { rubricCommand } from "./commands/rubric.js";
 import { scanCommand } from "./commands/scan.js";
@@ -20,7 +21,8 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
   record   跑一次 Agent 并落录制产物（--agent <目录> --out <录制目录>）
   grade    契约 + 录制目录 → 评分报告（--contract <contract.json> --run <录制目录>）
   scan     L1 静态分析（--path <文件或目录>）
-  rubric   LLM 评审 rubric 维度（--rubric <json> --artifact <文件> [--llm a,b] [--yes]）
+  rubric   LLM 评审 rubric 维度（--rubric <json> --artifact <文件> [--llm a,b] [--budget <tokens>] [--yes]）
+  calibrate 校准报告（--labels <人工标注json>）
   history  评分历史（--store <数据目录> [--project <id>]）
   submit   提交评分（--input <评分输入json>）
   doctor   环境自检
@@ -31,6 +33,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
   ceg grade --contract cegueira-contract/contract.json --run recordings/run-1 --store .ceg-data
   ceg scan --path ./my-agent
   ceg rubric --rubric cegueira-contract/rubrics.json --artifact ./my-agent/main.py --yes
+  ceg calibrate --labels calibration-labels.json
   ceg history --store .ceg-data
   ceg submit --input score-input.json
   ceg doctor
@@ -92,6 +95,13 @@ export async function run(argv: string[]): Promise<void> {
       if (!artifact) throw new Error("rubric 需要 --artifact <被评审文件>");
       const llms = options.llm ? options.llm.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
       const purpose = options.purpose === "generation" ? "generation" : "review";
+      let budgetTokens: number | undefined;
+      if (options.budget !== undefined) {
+        budgetTokens = Number(options.budget);
+        if (!Number.isFinite(budgetTokens) || budgetTokens <= 0) {
+          throw new Error("--budget 须为正数（token 上限）");
+        }
+      }
       console.log(
         await rubricCommand({
           rubricPath: rubric,
@@ -102,8 +112,15 @@ export async function run(argv: string[]): Promise<void> {
           apiKey: options["api-key"],
           purpose,
           confirmed: flags.has("yes"),
+          budgetTokens,
         }),
       );
+      break;
+    }
+    case "calibrate": {
+      const labels = options.labels;
+      if (!labels) throw new Error("calibrate 需要 --labels <人工标注json>");
+      console.log(calibrateCommand({ labelsPath: labels }));
       break;
     }
     case "submit": {

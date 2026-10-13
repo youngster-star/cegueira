@@ -19,6 +19,7 @@
  * 即可验证「预览拦截 → 确认 → 评审 → 报告」全链路，不触网。
  */
 import { readFileSync } from "node:fs";
+import { createBudget } from "@cegueira/budget";
 import {
   createAnthropicProvider,
   createOllamaProvider,
@@ -40,7 +41,12 @@ export interface RubricOptions {
   purpose?: OutboundPurpose;
   /** 是否已确认外发（--yes）。未确认则只出预览。 */
   confirmed?: boolean;
+  /** 预估 token 预算上限（--budget）。缺省则不启用三级守卫。 */
+  budgetTokens?: number;
 }
+
+/** 每次评审调用预留的补全 token 粗估（评分理由 + 1–5 评级，宽松取值）。 */
+export const COMPLETION_TOKEN_EST = 200;
 
 export type ProviderFactory = (ids: string[], config: LlmConfig) => LlmProvider[];
 
@@ -110,7 +116,31 @@ export async function rubricCommand(
     return [...previewLines, "", "尚未外发。确认无误后加 --yes 执行评审。"].join("\n");
   }
 
-  const ids = opts.llms && opts.llms.length > 0 ? opts.llms : ["ollama"];
+  let ids = opts.llms && opts.llms.length > 0 ? opts.llms : ["ollama"];
+
+  // 三级预算守卫（PRD §7）：70% 警告 / 90% 降级 / 100% 硬中断。
+  // 用预估 token 做前置检查：calls ×（提示 token 估 + 补全 token 估）。
+  const budgetLines: string[] = [];
+  if (opts.budgetTokens !== undefined) {
+    const calls = items.length * ids.length;
+    const estimated = calls * (privacy.preview.tokenEstimate + COMPLETION_TOKEN_EST);
+    const guard = createBudget(opts.budgetTokens);
+    const st = guard.consume(estimated);
+    budgetLines.push(
+      `预算：预估 ${estimated} / 上限 ${opts.budgetTokens} tokens（${Math.round(st.usedRatio * 100)}%，状态 ${st.state}）`,
+    );
+    if (st.state === "halted") {
+      budgetLines.push("预算已耗尽（≥100%），硬中断，未发起任何调用。请提高 --budget 或缩小范围。");
+      return [...budgetLines, "", ...previewLines].join("\n");
+    }
+    if (st.state === "degraded") {
+      budgetLines.push(`预算 ≥90%，降级为单家族评审：仅 ${ids[0]}。`);
+      ids = [ids[0]];
+    } else if (st.state === "warned") {
+      budgetLines.push("预算 ≥70%，警告：继续将接近上限。");
+    }
+  }
+
   const providers = factory(ids, {
     model: opts.model,
     baseUrl: opts.baseUrl,
@@ -119,6 +149,7 @@ export async function rubricCommand(
   const scores = await evaluateRubricCrossFamily(providers, items, privacy.pruned);
 
   const lines = [
+    ...budgetLines,
     `S_rubric 评审（跨家族 ${ids.join(" + ")}，逐维度取中位数）：`,
     ...items.map(
       (it, i) =>
