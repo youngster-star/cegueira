@@ -5,6 +5,7 @@ import { parseArgs } from "./args.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { gradeCommand } from "./commands/grade.js";
 import { initCommand } from "./commands/init.js";
+import { recordCommand } from "./commands/record.js";
 import { submitCommand } from "./commands/submit.js";
 
 export const HELP_TEXT = `Cegueira 陪练 CLI
@@ -13,12 +14,14 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
 
 命令：
   init     生成契约五件套（--direction <方向>，默认「RAG 问答 Agent」）
+  record   跑一次 Agent 并落录制产物（--agent <目录> --out <录制目录>）
   grade    契约 + 录制目录 → 评分报告（--contract <contract.json> --run <录制目录>）
   submit   提交评分（--input <评分输入json>）
   doctor   环境自检
 
 示例：
   ceg init --direction "RAG 问答"
+  ceg record --agent ./my-agent --out recordings/run-1
   ceg grade --contract cegueira-contract/contract.json --run recordings/run-1
   ceg submit --input score-input.json
   ceg doctor
@@ -32,6 +35,25 @@ export function run(argv: string[]): void {
       const direction = options.direction ?? options.d ?? "RAG 问答 Agent";
       const outDir = initCommand(direction);
       console.log(`✓ 已生成契约五件套到 ${outDir}/`);
+      break;
+    }
+    case "record": {
+      const agent = options.agent ?? options.a;
+      const out = options.out ?? options.o;
+      if (!agent) throw new Error("record 需要 --agent <Agent 目录>");
+      if (!out) throw new Error("record 需要 --out <录制输出目录>");
+      const timeout = options.timeout;
+      console.log(
+        recordCommand({
+          agentDir: agent,
+          runDir: out,
+          entry: options.entry,
+          upstream: options.upstream,
+          python: options.python,
+          repoRoot: options.root,
+          timeoutSec: timeout !== undefined ? Number(timeout) : undefined,
+        }),
+      );
       break;
     }
     case "grade": {

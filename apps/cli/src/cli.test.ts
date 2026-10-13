@@ -11,6 +11,13 @@ import {
   loadTrace,
 } from "./commands/grade.js";
 import { initCommand } from "./commands/init.js";
+import {
+  findPython,
+  findRepoRoot,
+  parseSummary,
+  recordCommand,
+  type SpawnResult,
+} from "./commands/record.js";
 import { submitCommand } from "./commands/submit.js";
 import type { Contract } from "@cegueira/contract";
 import type { AgentTrace } from "@cegueira/trace";
@@ -99,6 +106,82 @@ test("doctor 自检返回文本", () => {
   const out = doctorCommand();
   assert.ok(out.includes("node"));
   assert.ok(out.includes("python"));
+});
+
+// ---- ceg record：Node 编排 Python 录制器 ----
+
+test("parseSummary：取最后一行非空 JSON", () => {
+  const out = 'warning line\n{"run_id":"r","run_dir":"/x","spans":2,"tool_io":1,"http":1,"has_result":true}\n\n';
+  const s = parseSummary(out);
+  assert.equal(s.run_id, "r");
+  assert.equal(s.spans, 2);
+});
+
+test("parseSummary：空输出与坏 JSON 都报错", () => {
+  assert.throws(() => parseSummary("   \n"), /没有输出摘要/);
+  assert.throws(() => parseSummary("not json"), /不是合法 JSON/);
+});
+
+test("findRepoRoot：定位到含 python/runtime/cli.py 的仓库根", () => {
+  const root = findRepoRoot();
+  assert.ok(existsSync(join(root, "python", "runtime", "cli.py")), `未找到仓库根，得到 ${root}`);
+});
+
+test("findPython：显式优先，否则回退 PATH", () => {
+  assert.equal(findPython("/whatever", "/custom/python"), "/custom/python");
+  const fallback = findPython(makeTmpDir());
+  assert.ok(fallback === "python" || fallback === "python3");
+});
+
+test("recordCommand：拼出正确的 Python 调用并渲染报告", () => {
+  const calls: { cmd: string; args: string[]; cwd: string }[] = [];
+  const fake = (cmd: string, args: string[], o: { cwd: string }): SpawnResult => {
+    calls.push({ cmd, args, cwd: o.cwd });
+    return {
+      status: 0,
+      stdout: JSON.stringify({
+        run_id: "r1",
+        run_dir: "/runs/1",
+        spans: 3,
+        tool_io: 2,
+        http: 1,
+        has_result: true,
+      }),
+      stderr: "",
+    };
+  };
+
+  const report = recordCommand(
+    { agentDir: "/agent", runDir: "/runs/1", python: "/py", upstream: "http://u", timeoutSec: 30, repoRoot: "/repo" },
+    fake,
+  );
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cmd, "/py");
+  assert.equal(calls[0].cwd, "/repo");
+  assert.deepEqual(calls[0].args, [
+    "-m", "python.runtime.cli", "record",
+    "--agent", "/agent", "--out", "/runs/1",
+    "--upstream", "http://u", "--timeout", "30",
+  ]);
+  assert.ok(report.includes("/runs/1"));
+  assert.ok(report.includes("ceg grade"));
+});
+
+test("recordCommand：子进程非零退出时抛错并带上 stderr", () => {
+  const fake = (): SpawnResult => ({ status: 1, stdout: "", stderr: "boom: agent 挂了" });
+  assert.throws(
+    () => recordCommand({ agentDir: "/a", runDir: "/o", python: "/py", repoRoot: "/repo" }, fake),
+    /录制失败（退出码 1）.*agent 挂了/s,
+  );
+});
+
+test("recordCommand：无法启动子进程时报出解释器路径", () => {
+  const fake = (): SpawnResult => ({ status: null, error: new Error("ENOENT") });
+  assert.throws(
+    () => recordCommand({ agentDir: "/a", runDir: "/o", python: "/py", repoRoot: "/repo" }, fake),
+    /无法启动录制子进程（\/py）/,
+  );
 });
 
 // ---- ceg grade：契约 + 录制 → 评分报告 ----
