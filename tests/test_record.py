@@ -13,6 +13,7 @@ manifest 与 TS 侧 parseRecording 的同构由 test_manifest.py 的跨语言往
 """
 import io
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -25,7 +26,12 @@ sys.path.insert(0, str(ROOT))
 
 from python.replay.fakellm import FakeLLMHandler  # noqa: E402
 from python.runtime import cli  # noqa: E402
-from python.runtime.record import RecordError, record_agent  # noqa: E402
+from python.runtime.record import (  # noqa: E402
+    RecordError,
+    build_child_env,
+    record_agent,
+    repo_root,
+)
 
 # 临时 Agent：同时触发三类协议行。ROOT 由本文件写入脚本，供其 import 本仓包。
 AGENT_SOURCE = '''\
@@ -101,6 +107,29 @@ def _record(tmp_path: Path):
             agent_dir, run_dir, python=sys.executable, upstream=upstream, timeout=60
         )
     return res, run_dir
+
+
+def test_build_child_env_injects_scaffold_and_forces_protocol():
+    root = repo_root()
+    env = build_child_env(
+        {"CEG_MOCK_MODE": "record", "CEG_PROTOCOL": "0", "LLM_URL": "http://evil"},
+        llm_url="http://proxy/v1/chat/completions",
+        root=root,
+        base={"PYTHONPATH": "C:\\user-libs"},
+    )
+    # 仓库根拼在已有 PYTHONPATH 之前（脚手架优先，不被用户同名目录遮蔽）
+    assert env["PYTHONPATH"] == str(root) + os.pathsep + "C:\\user-libs"
+    # 调用方的 CEG_PROTOCOL / LLM_URL 不可覆盖
+    assert env["CEG_PROTOCOL"] == "1"
+    assert env["LLM_URL"] == "http://proxy/v1/chat/completions"
+    # 其余 env 原样保留
+    assert env["CEG_MOCK_MODE"] == "record"
+
+
+def test_build_child_env_without_existing_pythonpath():
+    env = build_child_env(None, llm_url="u", root=repo_root(), base={})
+    assert env["PYTHONPATH"] == str(repo_root())
+    assert env["PYTHONIOENCODING"] == "utf-8"
 
 
 def test_record_writes_all_artifacts():

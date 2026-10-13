@@ -10,6 +10,7 @@
 import io
 import json
 import os
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -201,6 +202,34 @@ def test_registry_save_load_unaffected_by_protocol():
     with _capture(enabled=False):
         replayed = MockRegistry.load(d, sandbox_dir=d / "sb2")
         assert replayed.db.execute("SELECT a FROM t") == [(7,)]
+
+
+def test_protocol_importable_without_yaml():
+    """protocol 必须零第三方依赖可导入——用户 Agent 的隔离 venv 未必有 yaml。
+
+    历史缺陷：`python/replay/__init__.py` eager import 了 mock/session，于是
+    `from python.replay import protocol` 会连带拉起 yaml，让「只想发 span」的
+    Agent 因一句无关依赖而崩溃。修复方式是惰性 `__getattr__`（PEP 562）。
+
+    这里在子进程里挂一个 meta-path 拦截器**屏蔽 yaml**，再导入 protocol：
+    若仍能成功，即证明解耦成立。
+    """
+    code = (
+        "import sys, importlib.abc\n"
+        "class Blocker(importlib.abc.MetaPathFinder):\n"
+        "    def find_spec(self, fullname, path=None, target=None):\n"
+        "        if fullname == 'yaml' or fullname.startswith('yaml.'):\n"
+        "            raise ImportError('yaml blocked for test')\n"
+        "        return None\n"
+        "sys.meta_path.insert(0, Blocker())\n"
+        f"sys.path.insert(0, {str(ROOT)!r})\n"
+        "import python.replay.protocol as p\n"
+        "import python.otel as otel\n"
+        "print('ok', hasattr(p, 'emit'), hasattr(otel, 'TraceCollector'))\n"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, f"protocol/otel 在无 yaml 环境不可导入：\n{r.stderr}"
+    assert r.stdout.strip().endswith("True True")
 
 
 def main():

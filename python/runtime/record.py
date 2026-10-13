@@ -69,6 +69,45 @@ class RecordResult:
     http_count: int = 0
 
 
+def repo_root() -> Path:
+    """本仓根目录（含 `python` 包）。`python/runtime/record.py` 向上两级。"""
+    return Path(__file__).resolve().parents[2]
+
+
+def build_child_env(
+    env: dict[str, str] | None,
+    *,
+    llm_url: str,
+    root: Path | None = None,
+    base: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """组装 Agent 子进程的环境变量。
+
+    ## 为什么必须注入 PYTHONPATH
+
+    用户 Agent 跑在自己的**隔离 venv** 里，而 `python.otel` / `python.replay.protocol`
+    是本仓提供的**埋点脚手架**，并不在用户 venv 里。把仓库根塞进 PYTHONPATH，
+    才能让 `import python.otel` 在用户 venv 中可见——这是「Agent 能发出 trace」
+    的前提（PRD §6.2 可观测性硬性契约）。
+
+    拼在**已有 PYTHONPATH 之前**：仓库根优先，避免用户的同名目录遮蔽脚手架。
+
+    `CEG_PROTOCOL` / `LLM_URL` 由录制框架**强制**写入，调用方 `env` 不可覆盖——
+    否则一句 `CEG_PROTOCOL=0` 就能让录制静默地没有产物。
+    """
+    root = root if root is not None else repo_root()
+    child = dict(base if base is not None else os.environ)
+    child.setdefault("PYTHONIOENCODING", "utf-8")
+
+    existing = child.get("PYTHONPATH")
+    child["PYTHONPATH"] = str(root) + (os.pathsep + existing if existing else "")
+
+    child.update(env or {})
+    child["CEG_PROTOCOL"] = "1"
+    child["LLM_URL"] = llm_url
+    return child
+
+
 def _resolve_python(agent_dir: Path, python: str | os.PathLike | None) -> str:
     """确定运行 Agent 的 Python 可执行文件。
 
@@ -179,12 +218,7 @@ def record_agent(
 
     try:
         exe = _resolve_python(agent_dir, python)
-        child_env = os.environ.copy()
-        child_env.setdefault("PYTHONIOENCODING", "utf-8")
-        child_env.update(env or {})
-        # 协议与 LLM 端点由录制框架强制注入，调用方不可覆盖。
-        child_env["CEG_PROTOCOL"] = "1"
-        child_env["LLM_URL"] = llm_url
+        child_env = build_child_env(env, llm_url=llm_url)
 
         proc = subprocess.Popen(
             [exe, entry],
