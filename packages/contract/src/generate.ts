@@ -12,9 +12,13 @@ import {
   type Rubric,
 } from "./types.js";
 
-/** 生成输入：方向 + 技能自评。 */
+/** 生成输入：方向 + 主题 + 难度 + 技能自评。 */
 export interface GenerationInput {
   direction: string;
+  /** 具体主题（如「电商客服知识库问答」）；缺省回退到方向。used as project title. */
+  topic?: string;
+  /** 项目难度（1–10）；影响生成契约的严格度与 PRD 描述。 */
+  difficulty?: number;
   selfAssessment?: string;
   /**
    * 覆盖模板默认的「变更类工具」声明（PRD §4.6 安全断言之一）。
@@ -38,16 +42,25 @@ export interface GenerationInput {
 const TOOL_WHITELIST = ["chunk", "embed", "index", "retrieve", "generate"] as const;
 
 /** 内置模板：RAG 问答 Agent 的契约五件套。 */
+/** 难度标签（PRD §5.7 口径：1–10，10 为行业痛点级）。 */
+export function difficultyLabel(d?: number): string {
+  if (typeof d !== "number" || !Number.isFinite(d)) return "未指定";
+  if (d <= 3) return "入门";
+  if (d <= 6) return "进阶";
+  if (d <= 8) return "熟练";
+  return "挑战（接近行业痛点）";
+}
+
 export function generateBundle(input: GenerationInput, projectId?: string): ContractBundle {
   const id = projectId ?? crypto.randomUUID();
-  const title = input.direction.trim() || "RAG 问答 Agent";
+  const title = input.topic?.trim() || input.direction.trim() || "RAG 问答 Agent";
 
   const projectMd: ProjectMd = {
     title,
     coreFunction: "根据语料库回答用户问题，并引用出处",
     coreTech: "Python + 向量检索 + 大模型生成",
-    envPrereq: "Python 3.11+；OpenAI/Anthropic API Key",
-    coreDifficulty: "检索命中率与回答忠于检索内容（不幻觉）",
+    envPrereq: "Python 3.11+；OpenAI/Anthropic API Key 或本地 Ollama",
+    coreDifficulty: `难度 ${input.difficulty ?? "未指定"}（${difficultyLabel(input.difficulty)}）：检索命中率与回答忠于检索内容（不幻觉）`,
   };
 
   const contract: Contract = {

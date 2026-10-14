@@ -56,6 +56,7 @@ const SYSTEM_PROMPT =
   '  "tests": [ { "id": "test-basic", "prompt": "测试题目", "expected_outcome": "期望结果", "data_flow_assertions": [{"source":"retrieval","field":"answer.cited_doc_ids"}], "splits": "public", "rewrites": ["改写1"] } ]\n' +
   "}\n" +
   "硬性要求：\n" +
+  "- 契约必须**贴合用户给出的项目方向/主题**，按其真实开发流程拟阶段与任务；不要一律套用 RAG（仅当方向是 RAG 问答时才用检索/生成）\n" +
   "- 3–4 个阶段，每阶段 1–3 个任务，任务数 4–6 个\n" +
   "- mutating_tools 必须是你已在 tool_call_in 中声明的工具名的一个子集，只列出**会产生副作用**的（写库/写文件/发起变更类请求）；只读或纯计算的工具不要列出；没有则给空数组\n" +
   '- acceptance 的 type 只能是 assert / tool_call_in / no_loop / latency_lt 四者之一（tool_call_in 需带 tools 数组，latency_lt 需带 maxMs）\n' +
@@ -116,7 +117,7 @@ function sanitizeMutatingTools(raw: unknown): string[] | undefined {
 
 /** 用代码补全确定性部分，组装成完整五件套。 */
 function assembleBundle(input: GenerationInput, draft: LlmContractDraft, id: string): ContractBundle {
-  const title = draft.title?.trim() || input.direction.trim() || "RAG 问答 Agent";
+  const title = draft.title?.trim() || input.topic?.trim() || input.direction.trim() || "RAG 问答 Agent";
   const mutatingTools = sanitizeMutatingTools(draft.mutating_tools);
 
   const contract: Contract = {
@@ -213,6 +214,8 @@ export async function generateBundleWithLlm(
           role: "user",
           content:
             `项目方向：${input.direction}\n` +
+            `项目主题：${input.topic?.trim() || "（未指定，请围绕方向自行拟定合理主题）"}\n` +
+            `项目难度（1–10）：${input.difficulty ?? "默认"}\n` +
             `技能自评：${input.selfAssessment ?? "未提供"}\n`,
         },
       ],

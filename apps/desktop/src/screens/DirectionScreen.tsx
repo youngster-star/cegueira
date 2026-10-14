@@ -3,6 +3,8 @@ import type { ContractBundle } from "@cegueira/contract";
 import { LEVELS } from "@cegueira/profile";
 import type { TFunc } from "@cegueira/i18n";
 import { backend } from "../lib/backend";
+import { loadConnection } from "../lib/connection";
+import { getApiKey } from "../lib/secret";
 
 const DIRECTIONS = [
   { id: "rag", value: "RAG 问答" },
@@ -15,6 +17,8 @@ export interface ContractMeta {
   contractPath: string;
   rubricPath: string;
   evalsetPath: string;
+  source: string;
+  degraded: boolean;
 }
 
 interface Props {
@@ -23,8 +27,13 @@ interface Props {
   initialAssessment?: number;
 }
 
+const DIFF_LABEL = (d: number): string =>
+  d <= 3 ? "入门" : d <= 6 ? "进阶" : d <= 8 ? "熟练" : "挑战";
+
 export default function DirectionScreen({ t, onGenerated, initialAssessment }: Props) {
   const [direction, setDirection] = useState(DIRECTIONS[0].value);
+  const [topic, setTopic] = useState("");
+  const [difficulty, setDifficulty] = useState(5);
   const [selfAssessment, setSelfAssessment] = useState(initialAssessment ?? 3);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,13 +42,23 @@ export default function DirectionScreen({ t, onGenerated, initialAssessment }: P
     setError(null);
     setGenerating(true);
     try {
-      // 调用本地 sidecar 的真实契约生成器（与 `ceg init` 同一引擎）。
-      const r = await backend.init(direction);
+      // 取首启向导里配置的连接；Ollama 免 Key，云端取密钥库中的 Key。
+      const conn = loadConnection();
+      const apiKey = (await getApiKey(conn.provider)) ?? undefined;
+      const r = await backend.init({
+        direction,
+        topic: topic.trim() || undefined,
+        difficulty,
+        selfAssessment: String(selfAssessment),
+        llm: { provider: conn.provider, baseUrl: conn.baseUrl, model: conn.model, apiKey },
+      });
       onGenerated(r.bundle, {
         dir: r.dir,
         contractPath: r.paths.contract,
         rubricPath: r.paths.rubric,
         evalsetPath: r.paths.evalset,
+        source: r.source,
+        degraded: r.degraded,
       });
     } catch (e) {
       setError((e as Error).message);
@@ -72,6 +91,29 @@ export default function DirectionScreen({ t, onGenerated, initialAssessment }: P
             </div>
           ))}
         </div>
+
+        <label className="muted" style={{ marginTop: 14, display: "block" }}>
+          {t("direction.topic")}
+        </label>
+        <input
+          className="input"
+          value={topic}
+          placeholder={t("direction.topicPlaceholder")}
+          onChange={(e) => setTopic(e.target.value)}
+          autoComplete="off"
+        />
+
+        <label className="muted" style={{ marginTop: 14, display: "block" }}>
+          {t("direction.difficulty")}：<b>{difficulty}</b> · {DIFF_LABEL(difficulty)}
+        </label>
+        <input
+          type="range"
+          min={1}
+          max={10}
+          value={difficulty}
+          onChange={(e) => setDifficulty(Number(e.target.value))}
+          style={{ width: "100%" }}
+        />
       </div>
 
       <div className="card">
@@ -98,7 +140,7 @@ export default function DirectionScreen({ t, onGenerated, initialAssessment }: P
       </div>
 
       {error && (
-        <p className="hint" style={{ color: "var(--warn)" }}>
+        <p className="hint" style={{ color: "var(--warn)", whiteSpace: "pre-wrap" }}>
           {t("common.error")}
           {error}
         </p>

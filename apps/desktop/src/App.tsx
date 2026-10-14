@@ -8,6 +8,7 @@ import type { GradeData } from "./lib/backend";
 import DirectionScreen, { type ContractMeta } from "./screens/DirectionScreen";
 import DevelopScreen from "./screens/DevelopScreen";
 import OnboardingScreen from "./screens/OnboardingScreen";
+import PlanScreen from "./screens/PlanScreen";
 import ResultScreen from "./screens/ResultScreen";
 import {
   applyTheme,
@@ -17,7 +18,7 @@ import {
   type ThemeMode,
 } from "./theme";
 
-type Screen = "direction" | "develop" | "result";
+type Screen = "direction" | "plan" | "develop" | "result";
 
 const SCREEN_KEY = "ceg.screen";
 const LOCALE_KEY = "ceg.locale";
@@ -127,6 +128,7 @@ export default function App() {
 
   const STEPS: { id: Screen; label: string }[] = [
     { id: "direction", label: i18n.t("step.direction") },
+    { id: "plan", label: i18n.t("step.plan") },
     { id: "develop", label: i18n.t("step.develop") },
     { id: "result", label: i18n.t("step.result") },
   ];
@@ -223,8 +225,17 @@ export default function App() {
             onGenerated={(b, meta) => {
               setBundle(b);
               setContractMeta(meta);
-              setScreen("develop");
+              setScreen("plan");
             }}
+          />
+        )}
+        {screen === "plan" && bundle && contractMeta && (
+          <PlanScreen
+            t={i18n.t}
+            bundle={bundle}
+            source={contractMeta.source}
+            degraded={contractMeta.degraded}
+            onDevelop={() => setScreen("develop")}
           />
         )}
         {screen === "develop" && bundle && contractMeta && (

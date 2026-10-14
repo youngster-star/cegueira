@@ -40,8 +40,17 @@ export interface InitResult {
   dir: string;
   bundle: ContractBundle;
   degraded: boolean;
-  attempts: number;
+  /** 生成来源说明（"llm" / "template" / "template (LLM 失败降级)"）。 */
+  source: string;
   paths: { contract: string; rubric: string; evalset: string };
+}
+
+/** 桌面端连接配置（与 lib/connection + secret 组合）。 */
+export interface LlmConfigInput {
+  provider: string;
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
 }
 
 export interface RecordResult {
@@ -78,8 +87,14 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 export const backend = {
   health: () => fetch(`${API_BASE}/api/health`).then((r) => r.json()),
-  /** 生成契约五件套（真实引擎），返回 bundle 与落盘路径。 */
-  init: (direction: string) => post<InitResult>("/api/init", { direction }),
+  /** 生成契约五件套（真实引擎，优先 LLM 按方向定制），返回 bundle 与落盘路径。 */
+  init: (args: {
+    direction: string;
+    topic?: string;
+    difficulty?: number;
+    selfAssessment?: string;
+    llm?: LlmConfigInput;
+  }) => post<InitResult>("/api/init", args),
   /** 运行用户 Agent 并落录制产物（真实 Python 录制）。 */
   record: (args: { agentDir: string; evalsetPath?: string }) => post<RecordResult>("/api/record", args),
   /** 契约 + 录制 → 真实评分。 */
