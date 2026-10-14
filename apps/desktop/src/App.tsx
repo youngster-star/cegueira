@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ContractBundle } from "@cegueira/contract";
-import type { ScoreResult } from "@cegueira/scorer";
 import { initialState, type LadderState } from "@cegueira/ladder";
 import { createI18n, type Locale } from "@cegueira/i18n";
 import CommandPalette from "./components/CommandPalette";
 import type { Command } from "./lib/commands";
-import DirectionScreen from "./screens/DirectionScreen";
+import type { GradeData } from "./lib/backend";
+import DirectionScreen, { type ContractMeta } from "./screens/DirectionScreen";
 import DevelopScreen from "./screens/DevelopScreen";
 import OnboardingScreen from "./screens/OnboardingScreen";
 import ResultScreen from "./screens/ResultScreen";
@@ -62,8 +62,9 @@ export default function App() {
   const [onboarded, setOnboarded] = useState<boolean>(loadOnboarded);
   const [selfAssessment, setSelfAssessment] = useState<number>(3);
   const [bundle, setBundle] = useState<ContractBundle | null>(null);
+  const [contractMeta, setContractMeta] = useState<ContractMeta | null>(null);
   const [ladder, setLadder] = useState<LadderState>(initialState());
-  const [score, setScore] = useState<ScoreResult | null>(null);
+  const [score, setScore] = useState<GradeData | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   const i18n = createI18n(locale);
@@ -133,6 +134,7 @@ export default function App() {
   const reset = () => {
     setScreen("direction");
     setBundle(null);
+    setContractMeta(null);
     setLadder(initialState());
     setScore(null);
   };
@@ -218,20 +220,23 @@ export default function App() {
           <DirectionScreen
             t={i18n.t}
             initialAssessment={selfAssessment}
-            onGenerated={(b) => {
+            onGenerated={(b, meta) => {
               setBundle(b);
+              setContractMeta(meta);
               setScreen("develop");
             }}
           />
         )}
-        {screen === "develop" && bundle && (
+        {screen === "develop" && bundle && contractMeta && (
           <DevelopScreen
             t={i18n.t}
             bundle={bundle}
             ladder={ladder}
             setLadder={setLadder}
-            onDone={(s) => {
-              setScore(s);
+            contractPath={contractMeta.contractPath}
+            evalsetPath={contractMeta.evalsetPath}
+            onDone={(g) => {
+              setScore(g);
               setScreen("result");
             }}
           />

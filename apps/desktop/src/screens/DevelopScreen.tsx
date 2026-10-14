@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type { ContractBundle } from "@cegueira/contract";
-import { score, type ScoreInput, type ScoreResult } from "@cegueira/scorer";
 import type { TFunc } from "@cegueira/i18n";
 import {
   LEVEL_DESC,
@@ -11,6 +10,7 @@ import {
   type LadderLevel,
   type LadderState,
 } from "@cegueira/ladder";
+import { backend, type GradeData } from "../lib/backend";
 
 const LEVEL_HINTS: Record<LadderLevel, string> = {
   0: "你的 Agent 当前有报错输出。先从报错信息入手，定位是哪一步失败。",
@@ -25,12 +25,24 @@ interface Props {
   bundle: ContractBundle;
   ladder: LadderState;
   setLadder: (s: LadderState) => void;
-  onDone: (s: ScoreResult) => void;
+  contractPath: string;
+  evalsetPath: string;
+  onDone: (g: GradeData) => void;
 }
 
-export default function DevelopScreen({ t, bundle, ladder, setLadder, onDone }: Props) {
+export default function DevelopScreen({
+  t,
+  bundle,
+  ladder,
+  setLadder,
+  contractPath,
+  evalsetPath,
+  onDone,
+}: Props) {
   const [explanation, setExplanation] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [agentDir, setAgentDir] = useState("");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleStuck = () => setLadder(onStuck(ladder));
   const handleL3 = () => setLadder(requestUpgrade(ladder, 3));
@@ -41,25 +53,28 @@ export default function DevelopScreen({ t, bundle, ladder, setLadder, onDone }: 
 
   // PRD §6.4 硬约束 1：请求过 L4 却未用自己的话解释，不得提交（技能分不升级）。
   const l4Pending = ladder.l4Requests > 0 && !ladder.l4Explained;
+  const canRun = !l4Pending && agentDir.trim().length > 0 && !running;
 
-  const handleSubmit = () => {
-    if (l4Pending) return;
-    setSubmitting(true);
-    // 最小 GUI 阶段：用演示采样模拟一次提交；P2 接入录制回放后替换为真实轨迹。
-    const input: ScoreInput = {
-      outcomeSamples: [0.9, 0.88, 0.92],
-      process: 0.8,
-      semantic: 0.85,
-      rubricSamples: [0.7, 0.75, 0.8],
-      security: {
-        no_unauthorized_mutation: true,
-        tool_call_whitelist: true,
-        no_prompt_leak: true,
-      },
-    };
-    setTimeout(() => {
-      onDone(score(input));
-    }, 400);
+  // 真实运行：录制用户 Agent（Python）→ 确定性评分。取代此前的硬编码演示分。
+  const handleRun = async () => {
+    if (!canRun) return;
+    setRunning(true);
+    setError(null);
+    try {
+      const rec = await backend.record({ agentDir: agentDir.trim(), evalsetPath });
+      const g = await backend.grade({
+        contractPath,
+        runDir: rec.runDir,
+        evalsetPath,
+        sourcePath: agentDir.trim(),
+        ladder,
+      });
+      onDone(g);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setRunning(false);
+    }
   };
 
   return (
@@ -157,9 +172,30 @@ export default function DevelopScreen({ t, bundle, ladder, setLadder, onDone }: 
         )}
       </div>
 
+      <div className="card">
+        <h2>{t("develop.agentDir")}</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          {t("develop.agentDirHint")}
+        </p>
+        <input
+          className="input"
+          value={agentDir}
+          placeholder="E:\\code\\my-agent  或  fixtures/demo-agent"
+          onChange={(e) => setAgentDir(e.target.value)}
+          autoComplete="off"
+        />
+      </div>
+
+      {error && (
+        <p className="hint" style={{ color: "var(--warn)", whiteSpace: "pre-wrap" }}>
+          {t("common.error")}
+          {error}
+        </p>
+      )}
+
       <div className="row">
-        <button className="btn primary" onClick={handleSubmit} disabled={submitting || l4Pending}>
-          {submitting ? t("develop.scoring") : t("develop.submit")}
+        <button className="btn primary" onClick={handleRun} disabled={!canRun}>
+          {running ? t("develop.running") : t("develop.run")} →
         </button>
         <span className="muted">
           {l4Pending ? t("develop.l4Prompt") : t("develop.submitHint")}

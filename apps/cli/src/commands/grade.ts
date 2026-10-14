@@ -298,8 +298,8 @@ export function loadRubricSamples(path: string): number[] {
   return arr as number[];
 }
 
-/** 评分报告文本。 */
-export function gradeCommand(opts: GradeOptions): string {
+/** 评分主流程：返回结构化结果（报告文本 + 分数/维度/门控/防作弊/指标）。 */
+export function gradeRun(opts: GradeOptions): GradeOutcome {
   const { contractPath, securityJson, storeDir, systemPrompt } = opts;
   const contract = readJson<Contract>(contractPath);
   const check = validateContract(contract);
@@ -558,5 +558,34 @@ export function gradeCommand(opts: GradeOptions): string {
     });
     lines.push(`已保存评分 ${saved.id}（project=${saved.projectId}）到 ${storeDir}`);
   }
-  return lines.join("\n");
+
+  return {
+    report: lines.join("\n"),
+    finalScore: result.finalScore,
+    sCore: result.sCore,
+    dimensions: d,
+    gates: result.gates,
+    antiCheat,
+    outcomeGate: result.gates.outcome,
+    securityGate: result.gates.security,
+    metrics,
+  };
+}
+
+/** 结构化评分结果（供 sidecar / 桌面端消费）。 */
+export interface GradeOutcome {
+  report: string;
+  finalScore: number;
+  sCore: number;
+  dimensions: ScoreResult["dimensions"];
+  gates: ScoreResult["gates"];
+  antiCheat?: AntiCheatReport;
+  outcomeGate: ScoreResult["gates"]["outcome"];
+  securityGate: ScoreResult["gates"]["security"];
+  metrics: EfficiencyMetrics;
+}
+
+/** ceg grade：返回报告文本（CLI 输出用）。 */
+export function gradeCommand(opts: GradeOptions): string {
+  return gradeRun(opts).report;
 }

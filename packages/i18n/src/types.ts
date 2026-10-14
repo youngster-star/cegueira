@@ -29,6 +29,8 @@ export const zhDict: Dict = {
   "direction.tool.desc": "调用外部工具 / API 完成任务",
   "direction.data.label": "数据分析 Agent",
   "direction.data.desc": "读取数据、分析并生成结论",
+  "direction.generate": "生成契约",
+  "direction.generating": "生成中…",
 
   // 开发屏
   "develop.title": "开发中",
@@ -53,6 +55,10 @@ export const zhDict: Dict = {
   "develop.scoring": "评分中…",
   "develop.submit": "提交评分 →",
   "develop.submitHint": "提交后进入确定性回放评分。",
+  "develop.agentDir": "Agent 项目目录",
+  "develop.agentDirHint": "填入你的 Agent 项目目录（含 main.py）。仓库自带的示例可填 fixtures/demo-agent。",
+  "develop.run": "运行并评分",
+  "develop.running": "运行中（录制 + 评分）…",
 
   // 结果屏
   "result.title": "评分结果",
@@ -84,6 +90,7 @@ export const zhDict: Dict = {
   "result.ladderUsage": "辅助阶梯使用：L3 请求 {l3} 次 · L4 请求 {l4} 次",
   "result.overReliant": "（频繁请求高等级辅助，掌握度可能被高估）",
   "result.restart": "← 开始新项目",
+  "result.report": "评分报告",
 
   // 首次运行向导
   "onboard.welcome": "欢迎使用 Cegueira",
@@ -116,6 +123,7 @@ export const zhDict: Dict = {
 
   "common.ok": "确定",
   "common.cancel": "取消",
+  "common.error": "出错：",
 };
 
 /** 英文词典（key 集合与 zh 完全一致）。 */
@@ -139,6 +147,8 @@ export const enDict: Dict = {
   "direction.tool.desc": "Call external tools / APIs to complete tasks",
   "direction.data.label": "Data-analysis Agent",
   "direction.data.desc": "Read data, analyze it, and draw conclusions",
+  "direction.generate": "Generate contract",
+  "direction.generating": "Generating…",
 
   // Develop screen
   "develop.title": "Developing",
@@ -163,6 +173,10 @@ export const enDict: Dict = {
   "develop.scoring": "Scoring…",
   "develop.submit": "Submit for scoring →",
   "develop.submitHint": "Submission runs deterministic replay scoring.",
+  "develop.agentDir": "Agent project dir",
+  "develop.agentDirHint": "Path to your agent project (containing main.py). For the bundled sample use fixtures/demo-agent.",
+  "develop.run": "Run & grade",
+  "develop.running": "Running (record + grade)…",
 
   // Result screen
   "result.title": "Scoring result",
@@ -194,6 +208,7 @@ export const enDict: Dict = {
   "result.ladderUsage": "Ladder usage: L3 {l3} · L4 {l4}",
   "result.overReliant": " (frequent high-level help may over-estimate mastery)",
   "result.restart": "← New project",
+  "result.report": "Score report",
 
   // Onboarding
   "onboard.welcome": "Welcome to Cegueira",
@@ -226,4 +241,5 @@ export const enDict: Dict = {
 
   "common.ok": "OK",
   "common.cancel": "Cancel",
+  "common.error": "Error: ",
 };

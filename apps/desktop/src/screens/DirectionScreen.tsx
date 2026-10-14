@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { generateBundle, type ContractBundle } from "@cegueira/contract";
+import type { ContractBundle } from "@cegueira/contract";
 import { LEVELS } from "@cegueira/profile";
 import type { TFunc } from "@cegueira/i18n";
+import { backend } from "../lib/backend";
 
 const DIRECTIONS = [
   { id: "rag", value: "RAG 问答" },
@@ -9,18 +10,42 @@ const DIRECTIONS = [
   { id: "data", value: "数据分析" },
 ];
 
+export interface ContractMeta {
+  dir: string;
+  contractPath: string;
+  rubricPath: string;
+  evalsetPath: string;
+}
+
 interface Props {
   t: TFunc;
-  onGenerated: (bundle: ContractBundle) => void;
+  onGenerated: (bundle: ContractBundle, meta: ContractMeta) => void;
   initialAssessment?: number;
 }
 
 export default function DirectionScreen({ t, onGenerated, initialAssessment }: Props) {
   const [direction, setDirection] = useState(DIRECTIONS[0].value);
   const [selfAssessment, setSelfAssessment] = useState(initialAssessment ?? 3);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleGenerate = () => {
-    onGenerated(generateBundle({ direction, selfAssessment: String(selfAssessment) }));
+  const handleGenerate = async () => {
+    setError(null);
+    setGenerating(true);
+    try {
+      // 调用本地 sidecar 的真实契约生成器（与 `ceg init` 同一引擎）。
+      const r = await backend.init(direction);
+      onGenerated(r.bundle, {
+        dir: r.dir,
+        contractPath: r.paths.contract,
+        rubricPath: r.paths.rubric,
+        evalsetPath: r.paths.evalset,
+      });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setGenerating(false);
+    }
   };
 
   return (
@@ -72,9 +97,16 @@ export default function DirectionScreen({ t, onGenerated, initialAssessment }: P
         </p>
       </div>
 
+      {error && (
+        <p className="hint" style={{ color: "var(--warn)" }}>
+          {t("common.error")}
+          {error}
+        </p>
+      )}
+
       <div className="row">
-        <button className="btn primary" onClick={handleGenerate}>
-          {t("direction.generate")} →
+        <button className="btn primary" onClick={handleGenerate} disabled={generating}>
+          {generating ? t("direction.generating") : t("direction.generate")} →
         </button>
       </div>
     </div>

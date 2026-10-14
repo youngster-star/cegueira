@@ -1,4 +1,4 @@
-import { computeStats, type ScoreResult } from "@cegueira/scorer";
+import { computeStats } from "@cegueira/scorer";
 import {
   levelOf,
   stateOf,
@@ -7,6 +7,7 @@ import {
 } from "@cegueira/profile";
 import type { LadderState } from "@cegueira/ladder";
 import type { TFunc } from "@cegueira/i18n";
+import type { GradeData } from "../lib/backend";
 
 const STATE_CLASS: Record<ProfileState, string> = {
   assessing: "assessing",
@@ -23,14 +24,14 @@ const DIM_WEIGHT: Record<string, number> = {
 
 interface Props {
   t: TFunc;
-  score: ScoreResult;
+  score: GradeData;
   ladder: LadderState;
   onRestart: () => void;
 }
 
 export default function ResultScreen({ t, score, ladder, onRestart }: Props) {
-  // 演示采样（P2 接入真实多次采样后替换）
-  const stats = computeStats([85.3, 86.1, 84.7]);
+  // 单次真实评分（sidecar 未做多次采样时 n=1，std=0）。多次采样由 `ceg grade --runs` 提供。
+  const stats = computeStats([score.finalScore]);
 
   // 画像：评分 0–100 映射到 0–10
   const skillScore = score.finalScore / 10;
@@ -128,6 +129,16 @@ export default function ResultScreen({ t, score, ladder, onRestart }: Props) {
           {t("result.ladderUsage", { l3: ladder.l3Requests, l4: ladder.l4Requests })}
           {ladder.l3Requests + ladder.l4Requests > 3 ? t("result.overReliant") : ""}
         </p>
+      </div>
+
+      <div className="card">
+        <h2>{t("result.report")}</h2>
+        <pre
+          className="mono"
+          style={{ whiteSpace: "pre-wrap", margin: 0, fontSize: 12, lineHeight: 1.6 }}
+        >
+          {score.report}
+        </pre>
       </div>
 
       <div className="row">
