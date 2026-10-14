@@ -26,6 +26,17 @@ export interface GenerationInput {
   mutatingTools?: string[];
 }
 
+/**
+ * 全流程允许的 Agent 级工具（全局白名单）。
+ *
+ * 为什么是**一份**而非按阶段拆分：单轨迹模型下 `tool_call_in` 会拿整条轨迹的全部
+ * 工具调用来判定（`acceptance.ts:114`：任一越界即整条不通过），因此它本质是全局
+ * 策略。若按阶段给互斥子集（入库只许 chunk/embed/index、生成只许 retrieve/generate），
+ * 任何**用了工具**的 Agent 都必违反其一，只有不用工具的 Agent 才能靠 `every([])`
+ * 空洞全过——契约变得不可满足。故统一为一份白名单，挂在首个任务上。
+ */
+const TOOL_WHITELIST = ["chunk", "embed", "index", "retrieve", "generate"] as const;
+
 /** 内置模板：RAG 问答 Agent 的契约五件套。 */
 export function generateBundle(input: GenerationInput, projectId?: string): ContractBundle {
   const id = projectId ?? crypto.randomUUID();
@@ -62,8 +73,8 @@ export function generateBundle(input: GenerationInput, projectId?: string): Cont
             acceptance: [
               {
                 type: "tool_call_in",
-                tools: ["chunk", "embed", "index"],
-                description: "只使用切分 / 向量化 / 入库类工具",
+                tools: [...TOOL_WHITELIST],
+                description: "全流程仅允许白名单内的工具（单轨迹模型的全局策略）",
               },
               { type: "latency_lt", maxMs: 5000, description: "入库耗时 < 5s" },
             ],
@@ -80,7 +91,7 @@ export function generateBundle(input: GenerationInput, projectId?: string): Cont
             depends_on: ["task-1"],
             weight: 0.4,
             acceptance: [
-              { type: "tool_call_in", tools: ["embed"], description: "仅允许 embed 工具" },
+              // 工具白名单已在 task-1 全局声明，此处不再重复（避免同一信号被多任务重复计权）。
               {
                 type: "assert",
                 expr: "success_rate >= 0.9",
@@ -110,7 +121,7 @@ export function generateBundle(input: GenerationInput, projectId?: string): Cont
             depends_on: ["task-3"],
             weight: 0.5,
             acceptance: [
-              { type: "tool_call_in", tools: ["retrieve", "generate"], description: "工具白名单" },
+              // 工具白名单已在 task-1 全局声明，此处不再重复。
               { type: "assert", expr: "answer_has_citation", description: "回答含引用" },
             ],
           },

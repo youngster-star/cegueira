@@ -1558,6 +1558,26 @@ test("run：ceg grade --l3/--l4/--l4-explained 透传到落库", async () => {
   }
 });
 
+test("verify：tool_call_in 无交集 → 提示（不硬失败）", () => {
+  const dir = makeTmpDir();
+  try {
+    const out = initCommand("RAG", join(dir, "c"));
+    const cp = join(out, "contract.json");
+    const contract = JSON.parse(readFileSync(cp, "utf8")) as Contract;
+    // 造两份无交集的白名单（任用了工具的 Agent 都无法同时通过）
+    contract.stages[0].tasks[0].acceptance = [{ type: "tool_call_in", tools: ["a"] }];
+    contract.stages[1].tasks[0].acceptance = [{ type: "tool_call_in", tools: ["b"] }];
+    writeFileSync(cp, JSON.stringify(contract));
+
+    const r = verifyBundle(out);
+    const item = r.items.find((i) => i.name === "tool_call_in 白名单可同时满足");
+    assert.ok(item && item.advisory && !item.ok, "应给出无交集的提示项");
+    assert.equal(r.ok, true, "提示项不应导致硬失败");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("verify：mandatory_tests 未在 evalset 定义 → 硬失败", () => {
   const dir = makeTmpDir();
   try {

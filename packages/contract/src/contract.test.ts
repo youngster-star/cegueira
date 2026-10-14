@@ -28,6 +28,27 @@ test("generateWithSelfCheck 首次通过且不降级", () => {
   assert.equal(selfCheck(bundle).ok, true);
 });
 
+test("生成的契约：tool_call_in 可被正常 Agent 同时满足（单轨迹全局白名单）", () => {
+  const c = generateBundle({ direction: "RAG 问答" }).contract;
+  const lists: Set<string>[] = [];
+  for (const st of c.stages) {
+    for (const t of st.tasks) {
+      for (const a of t.acceptance) {
+        if (a.type === "tool_call_in" && a.tools) lists.push(new Set(a.tools));
+      }
+    }
+  }
+  assert.ok(lists.length >= 1, "模板应至少声明一份工具白名单");
+  // 关键性质：存在一个工具集合（全流程工具）能同时满足所有 tool_call_in。
+  // 否则任何用了工具的 Agent 都会违反其一，只有空轨迹才能空洞全过。
+  const usedTools = ["chunk", "embed", "index", "retrieve", "generate"];
+  for (const list of lists) {
+    for (const tool of usedTools) {
+      assert.ok(list.has(tool), `${tool} 应落在每份 tool_call_in 白名单内`);
+    }
+  }
+});
+
 test("acceptance 可构造性判定", () => {
   assert.equal(isExecutableAcceptance({ type: "assert", expr: "doc_count >= 1" }).ok, true);
   assert.equal(isExecutableAcceptance({ type: "assert" }).ok, false);

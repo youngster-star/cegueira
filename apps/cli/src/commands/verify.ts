@@ -81,6 +81,35 @@ export function verifyBundle(dir: string): VerifyResult {
     items.push({ name: "contract 校验", ok: false, detail: `解析失败：${(e as Error).message}` });
   }
 
+  // 2b. tool_call_in 白名单能否同时满足？
+  // 单轨迹模型下 tool_call_in 是**全局**策略（任一越界即整条轨迹不通过），
+  // 若各任务给了无交集的子集，则「任何用了工具的 Agent」都无法同时通过——
+  // 属契约缺陷（提示，不硬失败）。
+  if (contract) {
+    const lists: Set<string>[] = [];
+    for (const st of contract.stages ?? []) {
+      for (const t of st.tasks ?? []) {
+        for (const a of t.acceptance ?? []) {
+          if (a.type === "tool_call_in" && Array.isArray(a.tools) && a.tools.length > 0) {
+            lists.push(new Set(a.tools));
+          }
+        }
+      }
+    }
+    if (lists.length >= 2) {
+      const intersection = new Set([...lists[0]].filter((x) => lists.every((s) => s.has(x))));
+      if (intersection.size === 0) {
+        items.push({
+          name: "tool_call_in 白名单可同时满足",
+          ok: false,
+          advisory: true,
+          detail:
+            "各任务的 tool_call_in 无交集：单轨迹模型下任何用了工具的 Agent 都无法同时通过，建议合并为一份全局白名单",
+        });
+      }
+    }
+  }
+
   // 3. rubric.yaml：安全三断言齐全 + outcome_min 合法
   let rubric: Rubric | undefined;
   try {
