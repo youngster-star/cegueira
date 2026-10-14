@@ -52,6 +52,7 @@ import {
 } from "./commands/record.js";
 import { collectPythonFiles, scanCommand, scanPath } from "./commands/scan.js";
 import { submitCommand } from "./commands/submit.js";
+import { generateBundle } from "@cegueira/contract";
 import type { Contract, EvalSet } from "@cegueira/contract";
 import type { AgentTrace } from "@cegueira/trace";
 
@@ -1075,6 +1076,21 @@ test("deriveSecurity：变更调用在白名单内 → 通过", () => {
   trace.tools.push({ id: "t2", name: "write_file", args: {}, result: null, ok: true, latencyMs: 1 });
   const sec = deriveSecurity(c, trace);
   assert.equal(sec.no_unauthorized_mutation, true);
+});
+
+test("grade：生成的契约默认声明 mutating_tools，门控不再「未声明默认放行」", () => {
+  const dir = makeTmpDir();
+  try {
+    const c = generateBundle({ direction: "RAG" }).contract;
+    const trace = healthyTrace();
+    trace.tools.push({ id: "t2", name: "index", args: {}, result: null, ok: true, latencyMs: 1 });
+    const { contractPath, runDir } = writeGradeFixture(dir, c, trace);
+    const report = gradeCommand({ contractPath, runDir });
+    assert.ok(!report.includes("未声明 mutating_tools"), "不应再出现「未声明默认放行」");
+    assert.ok(report.includes("未授权变更=无"), "index 在模板白名单内 → 判定为无越权变更");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("deriveSecurity：未声明 mutating_tools → 默认放行", () => {

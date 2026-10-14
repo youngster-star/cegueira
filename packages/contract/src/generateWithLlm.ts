@@ -50,12 +50,14 @@ const SYSTEM_PROMPT =
   "JSON 结构严格遵循：\n" +
   "{\n" +
   '  "title": "项目标题",\n' +
+  '  "mutating_tools": ["会产生副作用的工具名"],\n' +
   '  "stages": [ { "id": "stage-1", "name": "阶段名", "tasks": [ { "id": "task-1", "name": "任务名", "depends_on": ["task-0"], "weight": 0.5, "acceptance": [ {"type":"assert","expr":"cited_doc_ids ⊆ retrieval_doc_ids","description":"引用忠于检索"} ] } ] } ],\n' +
   '  "rubrics": [ { "id": "clarity", "prompt": "评审维度描述" } ],\n' +
   '  "tests": [ { "id": "test-basic", "prompt": "测试题目", "expected_outcome": "期望结果", "data_flow_assertions": [{"source":"retrieval","field":"answer.cited_doc_ids"}], "splits": "public", "rewrites": ["改写1"] } ]\n' +
   "}\n" +
   "硬性要求：\n" +
   "- 3–4 个阶段，每阶段 1–3 个任务，任务数 4–6 个\n" +
+  "- mutating_tools 必须是你已在 tool_call_in 中声明的工具名的一个子集，只列出**会产生副作用**的（写库/写文件/发起变更类请求）；只读或纯计算的工具不要列出；没有则给空数组\n" +
   '- acceptance 的 type 只能是 assert / tool_call_in / no_loop / latency_lt 四者之一（tool_call_in 需带 tools 数组，latency_lt 需带 maxMs）\n' +
   "- 同一阶段内所有任务的 weight 之和必须为 1\n" +
   "- 2–3 个 rubric 评审维度\n" +
@@ -71,6 +73,7 @@ const SYSTEM_PROMPT =
 /** LLM 输出的可定制部分（不含 projectMd/checks/gates/schema）。 */
 interface LlmContractDraft {
   title?: string;
+  mutating_tools?: unknown;
   stages?: Stage[];
   rubrics?: RubricItem[];
   tests?: EvalTest[];
@@ -97,14 +100,31 @@ function isUsableDraft(d: LlmContractDraft): d is Required<Pick<LlmContractDraft
   return true;
 }
 
+/**
+ * 清洗 LLM 给出的 mutating_tools：仅保留非空字符串并去重；非数组 → undefined（不声明，退回默认放行）。
+ * 保留不在 tool_call_in 白名单内的名字是**有意为之**（fail-closed）：若 Agent 真调用了它，
+ * 会被判定为「未授权变更」，而不是静默放行。
+ */
+function sanitizeMutatingTools(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: string[] = [];
+  for (const x of raw) {
+    if (typeof x === "string" && x.length > 0 && !out.includes(x)) out.push(x);
+  }
+  return out;
+}
+
 /** 用代码补全确定性部分，组装成完整五件套。 */
 function assembleBundle(input: GenerationInput, draft: LlmContractDraft, id: string): ContractBundle {
   const title = draft.title?.trim() || input.direction.trim() || "RAG 问答 Agent";
+  const mutatingTools = sanitizeMutatingTools(draft.mutating_tools);
 
   const contract: Contract = {
     schema: "1.0",
     project_id: id,
     title,
+    // 只有 LLM 显式给出时才写入，缺省不含该字段（评分时如实标注「未声明 → 默认放行」）。
+    ...(mutatingTools !== undefined ? { mutating_tools: mutatingTools } : {}),
     stages: draft.stages!.map((st, si) => ({
       ...st,
       id: st.id || `stage-${si + 1}`,

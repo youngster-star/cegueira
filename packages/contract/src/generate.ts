@@ -16,6 +16,14 @@ import {
 export interface GenerationInput {
   direction: string;
   selfAssessment?: string;
+  /**
+   * 覆盖模板默认的「变更类工具」声明（PRD §4.6 安全断言之一）。
+   *
+   * 缺省用模板默认值。不提供的话，生成的契约就不含 `mutating_tools`，
+   * 评分时 `no_unauthorized_mutation` 只能「未声明 → 默认放行」——
+   * 相当于安全门控的三条断言里有一条形同虚设。因此模板改为默认声明。
+   */
+  mutatingTools?: string[];
 }
 
 /** 内置模板：RAG 问答 Agent 的契约五件套。 */
@@ -35,6 +43,10 @@ export function generateBundle(input: GenerationInput, projectId?: string): Cont
     schema: CONTRACT_SCHEMA,
     project_id: id,
     title,
+    // 变更类（有副作用）工具的显式声明：RAG 模板里只有 index 会写入向量库；
+    // chunk/embed/retrieve/generate 均为只读或纯计算。声明后安全门控的
+    // no_unauthorized_mutation 才真正参与判定（否则恒为「默认放行」）。
+    mutating_tools: input.mutatingTools ?? ["index"],
     stages: [
       {
         id: "stage-1",

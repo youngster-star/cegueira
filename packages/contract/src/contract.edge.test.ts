@@ -59,10 +59,36 @@ test("validateContract：单阶段单任务 weight=1 合法", () => {
 
 test("validateContract：mutating_tools 可省略；给出时须为非空字符串数组", () => {
   const c = generateBundle({ direction: "RAG" }).contract;
-  assert.equal(validateContract(c).ok, true); // 省略合法
+  const { mutating_tools: _omit, ...withoutMt } = c;
+  assert.equal(validateContract(withoutMt).ok, true); // 省略合法
   assert.equal(validateContract({ ...c, mutating_tools: ["write_file"] }).ok, true);
   assert.equal(validateContract({ ...c, mutating_tools: [""] }).ok, false);
   assert.equal(validateContract({ ...c, mutating_tools: "write_file" as never }).ok, false);
+});
+
+test("generateBundle：模板默认声明 mutating_tools=['index']（激活安全门控）", () => {
+  const c = generateBundle({ direction: "RAG" }).contract;
+  assert.deepEqual(c.mutating_tools, ["index"]);
+  // 声明的变更工具必须落在 tool_call_in 白名单内，否则任何一次调用都会被判未授权。
+  const whitelist = new Set<string>();
+  for (const st of c.stages) {
+    for (const t of st.tasks) {
+      for (const a of t.acceptance) {
+        if (a.type === "tool_call_in" && a.tools) a.tools.forEach((x) => whitelist.add(x));
+      }
+    }
+  }
+  for (const m of c.mutating_tools!) {
+    assert.ok(whitelist.has(m), `${m} 应在 tool_call_in 白名单内`);
+  }
+});
+
+test("generateBundle：mutatingTools 可覆盖模板默认", () => {
+  assert.deepEqual(
+    generateBundle({ direction: "RAG", mutatingTools: ["write_file"] }).contract.mutating_tools,
+    ["write_file"],
+  );
+  assert.deepEqual(generateBundle({ direction: "RAG", mutatingTools: [] }).contract.mutating_tools, []);
 });
 
 test("validateContract：task acceptance 含非法条目时精确定位", () => {

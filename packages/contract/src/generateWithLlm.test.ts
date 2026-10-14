@@ -110,6 +110,26 @@ test("generateBundleWithLlm：LLM 成功产出定制契约", async () => {
   assert.equal(bundle.checks.length, 4);
 });
 
+test("generateBundleWithLlm：LLM 声明的 mutating_tools 经清洗后组装", async () => {
+  const withMt = JSON.stringify({
+    ...JSON.parse(DRAFT),
+    mutating_tools: ["upload", "", 123, "upload"],
+  });
+  const bundle = await generateBundleWithLlm(mockProvider(withMt), { direction: "客服问答" });
+  assert.deepEqual(bundle.contract.mutating_tools, ["upload"]);
+});
+
+test("generateBundleWithLlm：draft 未给 mutating_tools → 契约不含该字段（退回默认放行）", async () => {
+  const bundle = await generateBundleWithLlm(mockProvider(DRAFT), { direction: "客服问答" });
+  assert.equal("mutating_tools" in bundle.contract, false);
+});
+
+test("generateBundleWithLlm：mutating_tools 非数组 → 不声明", async () => {
+  const bad = JSON.stringify({ ...JSON.parse(DRAFT), mutating_tools: "upload" });
+  const bundle = await generateBundleWithLlm(mockProvider(bad), { direction: "客服问答" });
+  assert.equal("mutating_tools" in bundle.contract, false);
+});
+
 test("generateBundleWithLlm：LLM 返回非法内容降级模板", async () => {
   const provider = mockProvider("乱七八糟");
   const bundle = await generateBundleWithLlm(
