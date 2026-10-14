@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "./args.js";
 import { doctorCommand } from "./commands/doctor.js";
-import { gradeCommand } from "./commands/grade.js";
+import { gradeCommand, parseLadderUsage } from "./commands/grade.js";
 import { historyCommand } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
 import { calibrateCommand } from "./commands/calibrate.js";
@@ -22,7 +22,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
 命令：
   init     生成契约五件套（--direction <方向>，默认「RAG 问答 Agent」）
   record   跑 Agent 并落录制产物（--agent <目录> --out <录制目录> [--evalset <evalset.json>] [--mock-mode record|replay] [--deps-dir <目录>]）
-  grade    契约 + 录制目录 → 评分报告（--contract <contract.json> --run <录制目录> [--store <目录>] [--system-prompt <文件>] [--evalset <evalset.json>] [--ran-cases a,b] [--case <id>] [--rubric-scores <scores.json>] [--rubric-file <rubric.yaml>] [--source <源码目录>]）
+  grade    契约 + 录制目录 → 评分报告（--contract <contract.json> --run <录制目录> [--store <目录>] [--system-prompt <文件>] [--evalset <evalset.json>] [--ran-cases a,b] [--case <id>] [--rubric-scores <scores.json>] [--rubric-file <rubric.yaml>] [--source <源码目录>] [--l3 <次>] [--l4 <次>] [--l4-explained]）
   scan     L1 静态分析（--path <文件或目录>）
   rubric   LLM 评审 rubric 维度（--rubric <yaml|json> --artifact <文件> [--llm a,b] [--budget <tokens>] [--out <scores.json>] [--yes]）
   calibrate 校准报告（--labels <人工标注json>）
@@ -89,6 +89,11 @@ export async function run(argv: string[]): Promise<void> {
       const ranCases = options["ran-cases"]
         ? options["ran-cases"].split(",").map((s) => s.trim()).filter(Boolean)
         : undefined;
+      const ladder = parseLadderUsage({
+        l3: options.l3 !== undefined ? Number(options.l3) : undefined,
+        l4: options.l4 !== undefined ? Number(options.l4) : undefined,
+        l4Explained: flags.has("l4-explained"),
+      });
       console.log(
         gradeCommand({
           contractPath: contract,
@@ -102,6 +107,7 @@ export async function run(argv: string[]): Promise<void> {
           rubricScoresPath: options["rubric-scores"],
           rubricPath: options["rubric-file"],
           sourcePath: options.source,
+          ladder,
         }),
       );
       break;

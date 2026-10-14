@@ -41,6 +41,7 @@ import {
   type ScoreResult,
   type SecurityChecks,
 } from "@cegueira/scorer";
+import type { LadderUsage } from "@cegueira/persistence/types";
 import type { AgentTrace, EfficiencyMetrics } from "@cegueira/trace";
 import { parseRecording } from "@cegueira/trace/load";
 import { parse as parseYaml } from "yaml";
@@ -199,6 +200,29 @@ export interface GradeOptions {
   rubricPath?: string;
   /** Agent 源码路径；提供则在报告中附 L1 静态证据（PRD §4.1 三层证据，advisory）。 */
   sourcePath?: string;
+  /** 本次开发会话的辅助阶梯使用记录（PRD §6.4）；提供则随评分落库供画像消费。 */
+  ladder?: LadderUsage;
+}
+
+/** 把 grade 的离散选项解析为阶梯使用记录；三项皆缺省时返回 undefined。 */
+export function parseLadderUsage(opts: {
+  l3?: number;
+  l4?: number;
+  l4Explained?: boolean;
+}): LadderUsage | undefined {
+  const any = opts.l3 !== undefined || opts.l4 !== undefined || opts.l4Explained === true;
+  if (!any) return undefined;
+  const l3Requests = opts.l3 ?? 0;
+  const l4Requests = opts.l4 ?? 0;
+  for (const [name, v] of [
+    ["--l3", l3Requests],
+    ["--l4", l4Requests],
+  ] as const) {
+    if (!Number.isInteger(v) || v < 0) {
+      throw new Error(`${name} 须为非负整数，实际 ${v}`);
+    }
+  }
+  return { l3Requests, l4Requests, l4Explained: opts.l4Explained === true };
 }
 
 /** 读取 rubric.yaml 的 gates.outcome_min（接受 JSON 或 YAML），校验在 (0,1]。 */
@@ -438,8 +462,21 @@ export function gradeCommand(opts: GradeOptions): string {
     lines.push("说明：L1 为确定性证据层，不计入 FinalScore。");
   }
 
+  if (opts.ladder !== undefined) {
+    const l = opts.ladder;
+    const gated = l.l4Requests > 0 && !l.l4Explained;
+    lines.push(
+      "",
+      `辅助阶梯：L3 请求 ${l.l3Requests} 次、L4 请求 ${l.l4Requests} 次` +
+        (gated
+          ? "；L4 未解释 → 本次评分不计入能力评估（PRD §6.4 硬约束 1）"
+          : "") +
+        "。阶梯记录进入画像，但不进 FinalScore。",
+    );
+  }
+
   if (storeDir) {
-    const saved = recordScore(storeDir, contract, result);
+    const saved = recordScore(storeDir, contract, result, { ladder: opts.ladder });
     lines.push(`已保存评分 ${saved.id}（project=${saved.projectId}）到 ${storeDir}`);
   }
   return lines.join("\n");

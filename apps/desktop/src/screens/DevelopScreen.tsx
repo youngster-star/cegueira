@@ -39,7 +39,11 @@ export default function DevelopScreen({ t, bundle, ladder, setLadder, onDone }: 
     if (explanation.trim()) setLadder(explainL4(ladder));
   };
 
+  // PRD §6.4 硬约束 1：请求过 L4 却未用自己的话解释，不得提交（技能分不升级）。
+  const l4Pending = ladder.l4Requests > 0 && !ladder.l4Explained;
+
   const handleSubmit = () => {
+    if (l4Pending) return;
     setSubmitting(true);
     // 最小 GUI 阶段：用演示采样模拟一次提交；P2 接入录制回放后替换为真实轨迹。
     const input: ScoreInput = {
@@ -154,10 +158,12 @@ export default function DevelopScreen({ t, bundle, ladder, setLadder, onDone }: 
       </div>
 
       <div className="row">
-        <button className="btn primary" onClick={handleSubmit} disabled={submitting}>
+        <button className="btn primary" onClick={handleSubmit} disabled={submitting || l4Pending}>
           {submitting ? t("develop.scoring") : t("develop.submit")}
         </button>
-        <span className="muted">{t("develop.submitHint")}</span>
+        <span className="muted">
+          {l4Pending ? t("develop.l4Prompt") : t("develop.submitHint")}
+        </span>
       </div>
     </div>
   );

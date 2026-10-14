@@ -3,6 +3,14 @@ export type LadderLevel = 0 | 1 | 2 | 3 | 4;
 
 export const DEFAULT_LEVEL: LadderLevel = 2;
 
+/**
+ * 自动解锁的上限（PRD §6.4 硬约束 2：「系统默认停在 L1–L2，L3+ 需主动升级」）。
+ *
+ * `onStuck` 只能把级别推到 L2；L3/L4 必须经 `requestUpgrade` 显式请求。
+ * 默认已是 L2，故默认状态下反复「卡住」不会继续抬升级别——只累积 rejections。
+ */
+export const AUTO_LEVEL_MAX: LadderLevel = 2;
+
 export const LEVEL_DESC: Record<LadderLevel, string> = {
   0: "只报错，不说原因方向",
   1: "指向范围（指位置，不给答案）",
@@ -29,9 +37,9 @@ export function initialState(): LadderState {
   };
 }
 
-/** 用户卡住（当前引导不足以解决）→ 解锁下一级。 */
+/** 用户卡住（当前引导不足以解决）→ 在自动上限内解锁下一级（封顶 L2）。 */
 export function onStuck(s: LadderState): LadderState {
-  const next = Math.min(s.level + 1, 4) as LadderLevel;
+  const next = Math.min(s.level + 1, AUTO_LEVEL_MAX) as LadderLevel;
   return { ...s, level: next, rejections: s.rejections + 1 };
 }
 

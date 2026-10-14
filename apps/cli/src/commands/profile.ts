@@ -42,9 +42,24 @@ export function profileCommand(opts: ProfileOptions): string {
 
   const titleById = new Map(store.projects.list().map((p) => [p.id, p.title] as const));
 
+  // 辅助阶梯使用汇总（PRD §6.4 硬约束 3）：进入画像作负向信号，但不进 FinalScore。
+  let l3Requests = 0;
+  let l4Requests = 0;
+  let l4Gated = 0; // 请求过 L4 却未解释、被排除出能力评估的评分次数
+
   // 按技能维度分组：维度 → { 分数列表, 最近评估时间 }
   const groups = new Map<string, { scores: number[]; last: string }>();
   for (const s of scores) {
+    if (s.ladder) {
+      l3Requests += s.ladder.l3Requests;
+      l4Requests += s.ladder.l4Requests;
+    }
+    // 硬约束 1：给出 L4 代码后未用自己的话解释 → 该次评分不计入能力评估（技能分不升级）。
+    // 只排除「本次评分」的贡献，历史有效样本仍参与聚合。
+    if (s.ladder !== undefined && s.ladder.l4Requests > 0 && !s.ladder.l4Explained) {
+      l4Gated++;
+      continue;
+    }
     const skill = opts.skill ?? titleById.get(s.projectId) ?? s.projectId;
     const g = groups.get(skill) ?? { scores: [], last: "" };
     g.scores.push(s.finalScore);
@@ -55,6 +70,11 @@ export function profileCommand(opts: ProfileOptions): string {
   const now = opts.now ?? new Date().toISOString();
   const skills: Record<string, SkillProfile> = {};
   const lines: string[] = [`技能画像（${opts.storeDir}）：共 ${groups.size} 个技能维度`];
+  if (l4Gated > 0) {
+    lines.push(
+      `  ⚠ ${l4Gated} 次评分因请求 L4 后未解释，未计入能力评估（PRD §6.4 硬约束 1）`,
+    );
+  }
   let lucidez = false;
 
   // 稳定输出顺序：维度名排序
@@ -79,12 +99,18 @@ export function profileCommand(opts: ProfileOptions): string {
   const record: ProfileRecord = {
     id: opts.id ?? "local",
     skills,
-    ladder: { l3Requests: 0, l4Requests: 0 }, // 阶梯使用记录尚未落库
+    ladder: { l3Requests, l4Requests },
     achievements: { lucidez },
     updatedAt: now,
   };
   store.profiles.save(record);
 
+  // 阈值与 @cegueira/ladder.isOverReliant 对齐（L3+L4 > 3 即视为过度依赖）。
+  const overReliant = l3Requests + l4Requests > 3;
+  lines.push(
+    `辅助阶梯：L3 请求 ${l3Requests} 次、L4 请求 ${l4Requests} 次` +
+      (overReliant ? "（频繁依赖，掌握度可能被高估）" : ""),
+  );
   lines.push(lucidez ? "成就：已进入「掌握」档 → Lucidez。" : "成就：尚未进入「掌握」档。");
   lines.push(`已写入 profiles 集合（id=${record.id}）。`);
   return lines.join("\n");

@@ -21,6 +21,16 @@ export interface DimensionScores {
   rubric: number;
 }
 
+/** 一次评分所对应的辅助阶梯使用记录（PRD §6.4 硬约束 3）。 */
+export interface LadderUsage {
+  /** 主动请求 L3 的次数。 */
+  l3Requests: number;
+  /** 主动请求 L4 的次数。 */
+  l4Requests: number;
+  /** L4 给出代码后，用户是否已用自己的话解释（未解释则不升级技能分，硬约束 1）。 */
+  l4Explained: boolean;
+}
+
 /** 评分记录。 */
 export interface ScoreRecord {
   id: string;
@@ -29,7 +39,10 @@ export interface ScoreRecord {
   sCore: number;
   dimensions: DimensionScores;
   gates: unknown;
+  /** 报告统计（均值/标准差等）。 */
   stats: unknown;
+  /** 辅助阶梯使用记录；缺省表示该次评分未涉阶梯（旧版记录）。 */
+  ladder?: LadderUsage;
   createdAt: string;
 }
 

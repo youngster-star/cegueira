@@ -19,6 +19,7 @@ import {
   gradeCommand,
   loadRubricSamples,
   loadTrace,
+  parseLadderUsage,
   readOutcomeMin,
   renderAntiCheat,
   toEvalCases,
@@ -460,6 +461,84 @@ test("profileCommand：空库提示先评分", () => {
   }
 });
 
+/** 造一个含阶梯使用记录的评分库：两次有效 + 一次「请求 L4 未解释」被门控。 */
+function seedLadderStore(dir: string, opts: { onlyGated?: boolean } = {}): void {
+  const store = createJsonFilePersistence(dir);
+  store.projects.save({
+    id: "p1",
+    title: "RAG 问答",
+    direction: "RAG 问答",
+    contract: {},
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const dims = { outcome: 1, process: 0.6, semantic: 0.8, rubric: 0.7 };
+  const save = (
+    id: string,
+    finalScore: number,
+    createdAt: string,
+    ladder?: { l3Requests: number; l4Requests: number; l4Explained: boolean },
+  ) =>
+    store.scores.save({
+      id,
+      projectId: "p1",
+      finalScore,
+      sCore: finalScore / 100,
+      dimensions: dims,
+      gates: {},
+      stats: {},
+      ...(ladder ? { ladder } : {}),
+      createdAt,
+    });
+  if (!opts.onlyGated) {
+    save("a", 60, "2026-01-02T00:00:00.000Z", { l3Requests: 2, l4Requests: 0, l4Explained: false });
+    save("b", 64, "2026-01-03T00:00:00.000Z", { l3Requests: 1, l4Requests: 0, l4Explained: false });
+  }
+  // 请求 L4 却未解释 → 硬约束 1：不计入能力评估（若计入会把 62 拉高到 7.5 档 4）
+  save("g", 100, "2026-01-04T00:00:00.000Z", { l3Requests: 0, l4Requests: 1, l4Explained: false });
+}
+
+test("profileCommand：L4 未解释的评分不计入能力评估（硬约束 1）", () => {
+  const dir = makeTmpDir();
+  try {
+    seedLadderStore(dir);
+    const report = profileCommand({ storeDir: dir, now: "2026-01-04T00:00:00.000Z" });
+    assert.ok(report.includes("未计入能力评估"));
+    const saved = createJsonFilePersistence(dir).profiles.get("local")!;
+    // 有效样本 (60+64)/2 = 62 → 6.2 → 第 3 档；若把 100 计入则 7.47 → 第 4 档
+    assert.equal(saved.skills["RAG 问答"].level, 3);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("profileCommand：阶梯使用汇总入画像 + 过度依赖提示（硬约束 3）", () => {
+  const dir = makeTmpDir();
+  try {
+    seedLadderStore(dir);
+    const report = profileCommand({ storeDir: dir, now: "2026-01-04T00:00:00.000Z" });
+    assert.ok(report.includes("掌握度可能被高估")); // L3(3)+L4(1)=4 > 3
+    const saved = createJsonFilePersistence(dir).profiles.get("local")!;
+    assert.deepEqual(saved.ladder, { l3Requests: 3, l4Requests: 1 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("profileCommand：全部评分被 L4 门控 → 无技能维度但仍落库", () => {
+  const dir = makeTmpDir();
+  try {
+    seedLadderStore(dir, { onlyGated: true });
+    const report = profileCommand({ storeDir: dir, now: "2026-01-04T00:00:00.000Z" });
+    assert.ok(report.includes("0 个技能维度"));
+    const saved = createJsonFilePersistence(dir).profiles.get("local")!;
+    assert.deepEqual(saved.skills, {});
+    assert.deepEqual(saved.ladder, { l3Requests: 0, l4Requests: 1 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ---- S_rubric 管道：ceg rubric --out → ceg grade --rubric-scores ----
 
 test("median：奇数取中位、偶数取中间均值", () => {
@@ -610,6 +689,60 @@ test("grade --store：报告中提示已落库，history 可查", () => {
     const report = gradeCommand({ contractPath, runDir, storeDir: store });
     assert.ok(report.includes("已保存评分"));
     assert.ok(historyCommand(store).includes("共 1 条"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("parseLadderUsage：缺省→undefined，显式值校验", () => {
+  assert.equal(parseLadderUsage({}), undefined);
+  assert.deepEqual(parseLadderUsage({ l3: 2, l4: 1, l4Explained: true }), {
+    l3Requests: 2,
+    l4Requests: 1,
+    l4Explained: true,
+  });
+  assert.deepEqual(parseLadderUsage({ l4Explained: true }), {
+    l3Requests: 0,
+    l4Requests: 0,
+    l4Explained: true,
+  });
+  assert.throws(() => parseLadderUsage({ l3: -1 }), /非负整数/);
+  assert.throws(() => parseLadderUsage({ l4: 1.5 }), /非负整数/);
+});
+
+test("grade --store：阶梯使用随评分落库（硬约束 3）", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
+    const store = join(dir, "data");
+    const report = gradeCommand({
+      contractPath,
+      runDir,
+      storeDir: store,
+      ladder: { l3Requests: 2, l4Requests: 1, l4Explained: false },
+    });
+    assert.ok(report.includes("辅助阶梯"));
+    assert.ok(report.includes("未解释"));
+    const scores = JSON.parse(readFileSync(join(store, "scores.json"), "utf8")) as {
+      ladder: unknown;
+    }[];
+    assert.deepEqual(scores[0].ladder, { l3Requests: 2, l4Requests: 1, l4Explained: false });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("grade：未提供 --l3/--l4 时评分记录不含 ladder 键（旧版形状不变）", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
+    const store = join(dir, "data");
+    gradeCommand({ contractPath, runDir, storeDir: store });
+    const scores = JSON.parse(readFileSync(join(store, "scores.json"), "utf8")) as Record<
+      string,
+      unknown
+    >[];
+    assert.equal("ladder" in scores[0], false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1338,6 +1471,39 @@ test("run：ceg init --out 透传输出目录（回归：曾被忽略）", async
     process.exitCode = 0;
     await run(["verify", "--dir", out]);
     assert.notEqual(process.exitCode, 1);
+  } finally {
+    console.log = origLog;
+    process.exitCode = 0;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("run：ceg grade --l3/--l4/--l4-explained 透传到落库", async () => {
+  const dir = makeTmpDir();
+  const origLog = console.log;
+  console.log = () => {};
+  try {
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
+    const store = join(dir, "data");
+    await run([
+      "grade",
+      "--contract",
+      contractPath,
+      "--run",
+      runDir,
+      "--store",
+      store,
+      "--l3",
+      "2",
+      "--l4",
+      "1",
+      "--l4-explained",
+    ]);
+    const scores = JSON.parse(readFileSync(join(store, "scores.json"), "utf8")) as Record<
+      string,
+      unknown
+    >[];
+    assert.deepEqual(scores[0].ladder, { l3Requests: 2, l4Requests: 1, l4Explained: true });
   } finally {
     console.log = origLog;
     process.exitCode = 0;

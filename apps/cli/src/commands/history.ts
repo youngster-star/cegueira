@@ -19,7 +19,7 @@ import type { Contract } from "@cegueira/contract";
 // 走子路径导入，避免经 index 连带加载 sqlite（其 `node:sqlite` 会打印
 // ExperimentalWarning 污染 CLI 输出）。CLI 只用 JSON 文件后端。
 import { createJsonFilePersistence } from "@cegueira/persistence/persistence";
-import type { ProjectRecord, ScoreRecord } from "@cegueira/persistence/types";
+import type { LadderUsage, ProjectRecord, ScoreRecord } from "@cegueira/persistence/types";
 import { buildReport, type ScoreResult } from "@cegueira/scorer";
 
 export interface RecordScoreOptions {
@@ -27,6 +27,8 @@ export interface RecordScoreOptions {
   now?: string;
   /** 覆盖评分 id（测试用，保证确定性）。 */
   id?: string;
+  /** 本次评分对应的辅助阶梯使用记录（PRD §6.4）；缺省不写入。 */
+  ladder?: LadderUsage;
 }
 
 /**
@@ -65,6 +67,8 @@ export function recordScore(
     dimensions: result.dimensions,
     gates: result.gates,
     stats: report.stats,
+    // 仅在显式提供时写入 ladder 键，保持旧版记录的形状不变。
+    ...(options.ladder !== undefined ? { ladder: options.ladder } : {}),
     createdAt: now,
   };
   store.scores.save(score);

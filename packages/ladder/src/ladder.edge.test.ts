@@ -1,12 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  AUTO_LEVEL_MAX,
   DEFAULT_LEVEL,
   explainL4,
   initialState,
   isOverReliant,
   onStuck,
   requestUpgrade,
+  type LadderState,
 } from "./ladder.js";
 
 test("initialState 完整字段", () => {
@@ -28,15 +30,20 @@ test("onStuck 递增 rejections 计数", () => {
   assert.equal(s.rejections, 2);
 });
 
-test("onStuck 从 L2 连续卡住封顶 L4，不再增长", () => {
-  let s = initialState();
-  s = onStuck(s); // L2 -> L3
-  assert.equal(s.level, 3);
-  s = onStuck(s); // L3 -> L4
-  assert.equal(s.level, 4);
-  const levelBefore = s.level;
-  s = onStuck(s); // 封顶
-  assert.equal(s.level, levelBefore);
+test("onStuck 从 L2 连续卡住不再抬升级别（封顶 L2）", () => {
+  let s = initialState(); // L2
+  s = onStuck(s);
+  assert.equal(s.level, AUTO_LEVEL_MAX);
+  s = onStuck(s);
+  assert.equal(s.level, AUTO_LEVEL_MAX);
+});
+
+test("onStuck 从 L1 解锁到 L2 后封顶", () => {
+  let s: LadderState = { ...initialState(), level: 1 };
+  s = onStuck(s);
+  assert.equal(s.level, 2);
+  s = onStuck(s);
+  assert.equal(s.level, 2);
 });
 
 test("requestUpgrade 到 L3 递增 l3Requests", () => {
