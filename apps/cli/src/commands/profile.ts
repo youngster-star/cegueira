@@ -17,7 +17,17 @@
  * 项目归入「RAG」）。待契约引入 skill taxonomy 后，改用契约字段即可，无需
  * 改动画像算法本身。
  */
-import { aggregateSkill, isLucidez, LEVELS } from "@cegueira/profile";
+import { readFileSync } from "node:fs";
+import {
+  aggregateSkill,
+  evaluateCertification,
+  HARD_DIFFICULTY,
+  isLucidez,
+  LEVEL5_MIN_PROJECTS,
+  LEVEL6_MIN_PROJECTS,
+  LEVELS,
+  type ProjectEvidence,
+} from "@cegueira/profile";
 import { createJsonFilePersistence } from "@cegueira/persistence/persistence";
 import type { ProfileRecord, SkillProfile } from "@cegueira/persistence/types";
 
@@ -29,6 +39,51 @@ export interface ProfileOptions {
   now?: string;
   /** 画像记录 id（单机默认 "local"）。 */
   id?: string;
+  /**
+   * 顶级档认证证据文件（PRD §5.5）。形如
+   * `{"projects":[{"projectId","difficulty","reproducible","adopted"}]}`。
+   * 不提供则不做认证（报告如实标注「未提供证据」）。
+   */
+  evidencePath?: string;
+}
+
+/** 解析认证证据文件，逐条校验。 */
+export function parseEvidence(text: string): ProjectEvidence[] {
+  const raw = JSON.parse(text) as { projects?: unknown };
+  if (!Array.isArray(raw.projects)) {
+    throw new Error("证据文件需含 projects 数组");
+  }
+  return raw.projects.map((entry, i) => {
+    const o = entry as {
+      projectId?: unknown;
+      difficulty?: unknown;
+      reproducible?: unknown;
+      adopted?: unknown;
+    };
+    if (typeof o.projectId !== "string" || o.projectId.length === 0) {
+      throw new Error(`projects[${i}].projectId 应为非空字符串`);
+    }
+    if (
+      typeof o.difficulty !== "number" ||
+      !Number.isFinite(o.difficulty) ||
+      o.difficulty < 0 ||
+      o.difficulty > 10
+    ) {
+      throw new Error(`projects[${i}].difficulty 应为 [0,10] 的数字`);
+    }
+    if (typeof o.reproducible !== "boolean") {
+      throw new Error(`projects[${i}].reproducible 应为布尔值`);
+    }
+    if (typeof o.adopted !== "boolean") {
+      throw new Error(`projects[${i}].adopted 应为布尔值`);
+    }
+    return {
+      projectId: o.projectId,
+      difficulty: o.difficulty,
+      reproducible: o.reproducible,
+      adopted: o.adopted,
+    };
+  });
 }
 
 /** 聚合画像并落库，返回报告文本。 */
@@ -76,6 +131,7 @@ export function profileCommand(opts: ProfileOptions): string {
     );
   }
   let lucidez = false;
+  let topLevel = 0; // 最高档位，用于顶级档认证判定（PRD §5.5）
 
   // 稳定输出顺序：维度名排序
   for (const skill of [...groups.keys()].sort()) {
@@ -87,6 +143,7 @@ export function profileCommand(opts: ProfileOptions): string {
       now,
     });
     skills[skill] = { ...profile, percentile: 0 }; // 人口百分位需群体数据，MVP 置 0
+    topLevel = Math.max(topLevel, profile.level);
     // 成就须「确定」在掌握档（档 5）之上：评估中（不确定度过高）不授予，避免误判（PRD §5.2/§5.6）
     if (isLucidez(profile.level) && profile.state !== "assessing") lucidez = true;
     const name = LEVELS.find((l) => l.level === profile.level)?.name ?? "";
@@ -96,14 +153,38 @@ export function profileCommand(opts: ProfileOptions): string {
     );
   }
 
+  // 顶级档双轨制（PRD §5.5）：分数达标只是必要条件，还须认证证据。
+  const certification =
+    opts.evidencePath !== undefined
+      ? evaluateCertification(topLevel, parseEvidence(readFileSync(opts.evidencePath, "utf8")))
+      : undefined;
+
   const record: ProfileRecord = {
     id: opts.id ?? "local",
     skills,
     ladder: { l3Requests, l4Requests },
     achievements: { lucidez },
+    ...(certification !== undefined ? { certification } : {}),
     updatedAt: now,
   };
   store.profiles.save(record);
+
+  if (certification !== undefined) {
+    lines.push(
+      "顶级档认证（PRD §5.5 双轨制）：",
+      `  最高档：第 ${topLevel} 档` +
+        (topLevel < 5 ? "（未达精通档分数门槛，认证不适用）" : "（已具备分数门槛）"),
+      `  精通认证：需 ≥${LEVEL5_MIN_PROJECTS} 个「难度 ≥${HARD_DIFFICULTY} 且他人可复现」的项目，` +
+        `当前 ${certification.hardReproducibleProjects} 个 → ${certification.level5 ? "通过 ✓" : "未通过"}`,
+      `  大师认证：需 ≥${LEVEL6_MIN_PROJECTS} 个「被他人采用 / 方案被社区采纳」的项目，` +
+        `当前 ${certification.adoptedProjects} 个 → ${certification.level6 ? "通过 ✓" : "未通过"}`,
+    );
+  } else {
+    lines.push(
+      "顶级档认证（PRD §5.5）：未提供证据（--evidence <json>），仅按分数档位展示；" +
+        "顶级档（精通/大师）须叠加认证才成立。",
+    );
+  }
 
   // 阈值与 @cegueira/ladder.isOverReliant 对齐（L3+L4 > 3 即视为过度依赖）。
   const overReliant = l3Requests + l4Requests > 3;

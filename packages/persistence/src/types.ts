@@ -56,11 +56,21 @@ export interface SkillProfile {
   lastAssessedAt: string;
 }
 
+/** 顶级档双轨制认证结果（PRD §5.5）。结构与 @cegueira/profile 的 CertificationResult 兼容。 */
+export interface CertificationSummary {
+  level5: boolean;
+  level6: boolean;
+  hardReproducibleProjects: number;
+  adoptedProjects: number;
+}
+
 /** 用户画像记录。 */
 export interface ProfileRecord {
   id: string;
   skills: Record<string, SkillProfile>;
   ladder: { l3Requests: number; l4Requests: number };
   achievements: { lucidez: boolean };
+  /** 顶级档认证（PRD §5.5）；缺省表示未提供认证证据。 */
+  certification?: CertificationSummary;
   updatedAt: string;
 }

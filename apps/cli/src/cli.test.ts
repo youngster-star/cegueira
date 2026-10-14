@@ -41,7 +41,7 @@ import {
   rubricCommand,
   type ProviderFactory,
 } from "./commands/rubric.js";
-import { profileCommand } from "./commands/profile.js";
+import { parseEvidence, profileCommand } from "./commands/profile.js";
 import { processPrivacy } from "@cegueira/privacy";
 import { createJsonFilePersistence } from "@cegueira/persistence/persistence";
 import {
@@ -536,6 +536,76 @@ test("profileCommand：全部评分被 L4 门控 → 无技能维度但仍落库
     const saved = createJsonFilePersistence(dir).profiles.get("local")!;
     assert.deepEqual(saved.skills, {});
     assert.deepEqual(saved.ladder, { l3Requests: 0, l4Requests: 1 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("parseEvidence：校验形状与数值范围", () => {
+  const ok = parseEvidence(
+    JSON.stringify({
+      projects: [{ projectId: "p1", difficulty: 8.5, reproducible: true, adopted: false }],
+    }),
+  );
+  assert.equal(ok.length, 1);
+  assert.equal(ok[0].difficulty, 8.5);
+  assert.throws(() => parseEvidence("{}"), /projects 数组/);
+  assert.throws(
+    () =>
+      parseEvidence(
+        JSON.stringify({
+          projects: [{ projectId: "", difficulty: 8, reproducible: true, adopted: false }],
+        }),
+      ),
+    /projectId/,
+  );
+  assert.throws(
+    () =>
+      parseEvidence(
+        JSON.stringify({
+          projects: [{ projectId: "p", difficulty: 11, reproducible: true, adopted: false }],
+        }),
+      ),
+    /difficulty/,
+  );
+});
+
+test("profileCommand：--evidence 判定顶级档认证并落库（PRD §5.5）", () => {
+  const dir = makeTmpDir();
+  try {
+    seedScoreStore(dir); // 均值 81 → 8.1 → 第 5 档（具备精通分数门槛）
+    const evidencePath = join(dir, "evidence.json");
+    writeFileSync(
+      evidencePath,
+      JSON.stringify({
+        projects: [
+          { projectId: "p1", difficulty: 8.5, reproducible: true, adopted: false },
+          { projectId: "p2", difficulty: 8.2, reproducible: true, adopted: true },
+        ],
+      }),
+    );
+    const report = profileCommand({
+      storeDir: dir,
+      now: "2026-01-04T00:00:00.000Z",
+      evidencePath,
+    });
+    assert.ok(report.includes("顶级档认证"));
+    assert.ok(report.includes("精通认证") && report.includes("通过 ✓"));
+    const saved = createJsonFilePersistence(dir).profiles.get("local")!;
+    assert.equal(saved.certification!.level5, true);
+    assert.equal(saved.certification!.hardReproducibleProjects, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("profileCommand：无 --evidence → 标注未提供证据且不写 certification", () => {
+  const dir = makeTmpDir();
+  try {
+    seedScoreStore(dir);
+    const report = profileCommand({ storeDir: dir, now: "2026-01-04T00:00:00.000Z" });
+    assert.ok(report.includes("未提供证据"));
+    assert.equal(createJsonFilePersistence(dir).profiles.get("local")!.certification, undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

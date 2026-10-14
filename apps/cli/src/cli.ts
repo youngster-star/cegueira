@@ -26,7 +26,7 @@ export const HELP_TEXT = `Cegueira 陪练 CLI
   scan     L1 静态分析（--path <文件或目录>）
   rubric   LLM 评审 rubric 维度（--rubric <yaml|json> --artifact <文件> [--llm a,b] [--budget <tokens>] [--out <scores.json>] [--yes]）
   calibrate 校准报告（--labels <人工标注json>）
-  profile  技能画像聚合（--store <数据目录> [--skill <名>]）
+  profile  技能画像聚合（--store <数据目录> [--skill <名>] [--evidence <认证证据json>]）
   history  评分历史（--store <数据目录> [--project <id>]）
   submit   提交评分（--input <评分输入json>）
   verify   契约五件套自检（--dir <契约目录>，默认 cegueira-contract）
@@ -163,7 +163,9 @@ export async function run(argv: string[]): Promise<void> {
     case "profile": {
       const storeDir = options.store;
       if (!storeDir) throw new Error("profile 需要 --store <数据目录>");
-      console.log(profileCommand({ storeDir, skill: options.skill }));
+      console.log(
+        profileCommand({ storeDir, skill: options.skill, evidencePath: options.evidence }),
+      );
       break;
     }
     case "submit": {
