@@ -124,7 +124,14 @@ def _resolve_python(agent_dir: Path, python: str | os.PathLike | None) -> str:
     """
     if python is not None:
         return str(python)
-    vdir = ensure_venv(agent_dir)
+    try:
+        vdir = ensure_venv(agent_dir)
+    except subprocess.CalledProcessError as e:
+        # 离线 / 依赖不可用时的 pip 失败：归为 RecordError，避免抛原始 traceback。
+        raise RecordError(
+            f"为 Agent 创建 venv 或安装依赖失败（{agent_dir}）：{e}；"
+            "请检查网络/镜像，或先用 --python 指定一个已装好依赖的解释器"
+        )
     return str(venv_python(vdir))
 
 
