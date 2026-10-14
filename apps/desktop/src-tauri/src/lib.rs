@@ -9,7 +9,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder},
     tray::TrayIconBuilder,
     Manager, RunEvent, WindowEvent,
 };
@@ -133,6 +133,22 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+
+            // 原生菜单栏（桌面应用观感）：文件 / 视图 / 窗口
+            let file_menu = SubmenuBuilder::new(app, "文件")
+                .item(&PredefinedMenuItem::quit(app, Some("退出"))?)
+                .build()?;
+            let view_menu = SubmenuBuilder::new(app, "视图")
+                .item(&PredefinedMenuItem::fullscreen(app, Some("全屏"))?)
+                .build()?;
+            let window_menu = SubmenuBuilder::new(app, "窗口")
+                .item(&PredefinedMenuItem::minimize(app, Some("最小化"))?)
+                .build()?;
+            let app_menu = MenuBuilder::new(app)
+                .items(&[&file_menu, &view_menu, &window_menu])
+                .build()?;
+            app.set_menu(app_menu)?;
+
             Ok(())
         })
         // 关闭窗口时隐藏到托盘，而非退出进程
