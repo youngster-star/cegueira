@@ -17,6 +17,7 @@ import {
   deriveSecurity,
   detectPromptLeak,
   gradeCommand,
+  hasTraceSignal,
   loadRubricSamples,
   loadTrace,
   parseLadderUsage,
@@ -690,6 +691,36 @@ test("grade --store：报告中提示已落库，history 可查", () => {
     const report = gradeCommand({ contractPath, runDir, storeDir: store });
     assert.ok(report.includes("已保存评分"));
     assert.ok(historyCommand(store).includes("共 1 条"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hasTraceSignal：五项全空→false，任一非空→true", () => {
+  const empty: AgentTrace = { http: [], tools: [], llmSpans: [], retrievals: [] };
+  assert.equal(hasTraceSignal(empty), false);
+  assert.equal(hasTraceSignal(healthyTrace()), true);
+  assert.equal(
+    hasTraceSignal({ ...empty, finalAnswer: { text: "x", citedDocIds: [] } }),
+    true,
+  );
+  assert.equal(
+    hasTraceSignal({
+      ...empty,
+      tools: [{ id: "t", name: "x", args: {}, result: null, ok: true, latencyMs: 1 }],
+    }),
+    true,
+  );
+});
+
+test("grade：全空轨迹 → 明确告知未埋点、轨迹分不可信（PRD §6.2）", () => {
+  const dir = makeTmpDir();
+  try {
+    const empty: AgentTrace = { http: [], tools: [], llmSpans: [], retrievals: [] };
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, empty);
+    const report = gradeCommand({ contractPath, runDir });
+    assert.ok(report.includes("未检测到任何轨迹信号"));
+    assert.ok(report.includes("不可信"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

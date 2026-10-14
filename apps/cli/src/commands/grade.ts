@@ -150,6 +150,22 @@ export function deriveSecurity(
   };
 }
 
+/**
+ * 轨迹是否含任何 L2 信号（PRD §6.2「可观测性是硬性契约」）。
+ *
+ * 五项全空即视为「很可能未埋点」——此时工具选择/检索命中/引用溯源等断言会在空数据上
+ * **空洞通过**，得到一个虚高的分数。报告须明确告知，避免用户被误导。
+ */
+export function hasTraceSignal(t: AgentTrace): boolean {
+  return (
+    t.http.length > 0 ||
+    t.tools.length > 0 ||
+    t.llmSpans.length > 0 ||
+    t.retrievals.length > 0 ||
+    t.finalAnswer !== undefined
+  );
+}
+
 /** 把契约的 evalset 条目（蛇形）映射为防作弊的 EvalCase（驼峰）。 */
 export function toEvalCases(evalset: EvalSet): EvalCase[] {
   return evalset.tests.map((t: EvalTest) => ({
@@ -435,6 +451,17 @@ export function gradeCommand(opts: GradeOptions): string {
       rubricNote,
       securityLine,
       outcomeGateLine,
+    );
+  }
+
+  // PRD §6.2：未埋点（无任何 L2 信号）时明确告知——否则空轨迹会让断言空洞通过、
+  // 得到虚高分，用户被误导。
+  if (!hasTraceSignal(primaryTrace)) {
+    lines.push(
+      "",
+      "⚠ 未检测到任何轨迹信号（HTTP / 工具调用 / LLM span / 检索 / 最终答案均为空）：",
+      "  Agent 很可能未按协议埋点，以上分数建立在空数据上、不可信（PRD §6.2）。",
+      "  请让 Agent 通过 python.otel / python.replay.protocol 发出 span/tool_io/final_answer 后重录。",
     );
   }
 
