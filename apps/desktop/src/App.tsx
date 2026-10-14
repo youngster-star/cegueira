@@ -28,7 +28,9 @@ const SELF_KEY = "ceg.selfAssessment";
 function loadScreen(): Screen {
   try {
     const v = localStorage.getItem(SCREEN_KEY);
-    return v === "direction" || v === "develop" || v === "result" ? v : "direction";
+    return v === "direction" || v === "plan" || v === "develop" || v === "result"
+      ? v
+      : "direction";
   } catch {
     return "direction";
   }
@@ -177,7 +179,18 @@ export default function App() {
     }
   };
 
-  const stepIndex = STEPS.findIndex((s) => s.id === screen);
+  // 屏与状态一致性守卫：bundle/score 不持久化，刷新后若停在依赖它们的屏，
+  // 会四个分支全 false → 主区空白。这里回退到有内容的屏。
+  const effectiveScreen: Screen =
+    (screen === "plan" || screen === "develop") && !bundle
+      ? "direction"
+      : screen === "result" && !score
+        ? bundle
+          ? "develop"
+          : "direction"
+        : screen;
+
+  const stepIndex = STEPS.findIndex((s) => s.id === effectiveScreen);
 
   if (!onboarded) {
     return (
@@ -218,7 +231,7 @@ export default function App() {
       </header>
 
       <main className="content">
-        {screen === "direction" && (
+        {effectiveScreen === "direction" && (
           <DirectionScreen
             t={i18n.t}
             initialAssessment={selfAssessment}
@@ -229,7 +242,7 @@ export default function App() {
             }}
           />
         )}
-        {screen === "plan" && bundle && contractMeta && (
+        {effectiveScreen === "plan" && bundle && contractMeta && (
           <PlanScreen
             t={i18n.t}
             bundle={bundle}
@@ -238,7 +251,7 @@ export default function App() {
             onDevelop={() => setScreen("develop")}
           />
         )}
-        {screen === "develop" && bundle && contractMeta && (
+        {effectiveScreen === "develop" && bundle && contractMeta && (
           <DevelopScreen
             t={i18n.t}
             bundle={bundle}
@@ -252,7 +265,7 @@ export default function App() {
             }}
           />
         )}
-        {screen === "result" && score && (
+        {effectiveScreen === "result" && score && (
           <ResultScreen t={i18n.t} score={score} ladder={ladder} onRestart={reset} />
         )}
       </main>
