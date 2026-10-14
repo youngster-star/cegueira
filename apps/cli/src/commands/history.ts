@@ -29,6 +29,8 @@ export interface RecordScoreOptions {
   id?: string;
   /** 本次评分对应的辅助阶梯使用记录（PRD §6.4）；缺省不写入。 */
   ladder?: LadderUsage;
+  /** 稳定性统计（PRD §4.7）；提供则用它落库，否则用单样本统计。 */
+  stats?: unknown;
 }
 
 /**
@@ -66,7 +68,7 @@ export function recordScore(
     sCore: result.sCore,
     dimensions: result.dimensions,
     gates: result.gates,
-    stats: report.stats,
+    stats: options.stats ?? report.stats,
     // 仅在显式提供时写入 ladder 键，保持旧版记录的形状不变。
     ...(options.ladder !== undefined ? { ladder: options.ladder } : {}),
     createdAt: now,

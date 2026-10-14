@@ -34,10 +34,12 @@ import {
   type EvalTest,
 } from "@cegueira/contract";
 import {
+  computeStats,
   OUTCOME_MIN_GATE,
   score,
   scoreFromTrace,
   type OutcomeEvaluation,
+  type ReportStats,
   type ScoreResult,
   type SecurityChecks,
 } from "@cegueira/scorer";
@@ -218,6 +220,27 @@ export interface GradeOptions {
   sourcePath?: string;
   /** 本次开发会话的辅助阶梯使用记录（PRD §6.4）；提供则随评分落库供画像消费。 */
   ladder?: LadderUsage;
+  /**
+   * 额外录制目录（稳定性采样，PRD §4.2 / §4.7）。每个目录是同一份提交的一次
+   * 独立录制；连同 `--run` 一起构成采样分布，报告均值/标准差/最差/置信区间。
+   * 稳定性是**独立信号**，不并入 FinalScore。
+   */
+  runs?: string[];
+}
+
+/** 渲染稳定性统计（PRD §4.7）；标准差超 §4.9 目标（3 分）时给出警示。 */
+export function renderStability(stats: ReportStats): string[] {
+  const ci = `[${stats.ci[0].toFixed(1)}, ${stats.ci[1].toFixed(1)}]`;
+  const lines = [
+    `稳定性（独立信号，PRD §4.2，不计入主分）：${stats.samples} 次采样`,
+    `  均值 ${stats.mean.toFixed(1)} 标准差 ${stats.std.toFixed(2)} 最差 ${stats.worst.toFixed(1)} 95%CI ${ci}`,
+  ];
+  if (stats.std > 3) {
+    lines.push(
+      "  ⚠ 标准差 > 3 分（PRD §4.9 目标 ≤3）：评分对采样敏感，改代码前后的分差可能来自噪声",
+    );
+  }
+  return lines;
 }
 
 /** 把 grade 的离散选项解析为阶梯使用记录；三项皆缺省时返回 undefined。 */
@@ -385,6 +408,24 @@ export function gradeCommand(opts: GradeOptions): string {
   }
   const d = result.dimensions;
 
+  // 稳定性采样（PRD §4.2 / §4.7）：把 --runs 的每个目录当作同一份提交的一次独立录制，
+  // 各自评分后与主分一起构成样本分布。属**独立信号**，不并入 FinalScore。
+  let stability: ReportStats | undefined;
+  if (opts.runs !== undefined && opts.runs.length > 0) {
+    const samples = [result.finalScore];
+    for (const extra of opts.runs) {
+      const t = loadTrace(extra);
+      const s = deriveSecurity(contract, t, override);
+      if (systemPrompt !== undefined && override?.no_prompt_leak === undefined) {
+        s.no_prompt_leak = detectPromptLeak(systemPrompt, t).sources.length === 0;
+      }
+      samples.push(
+        scoreFromTrace(contract, t, { security: s, rubricSamples, outcomeMin }).result.finalScore,
+      );
+    }
+    stability = computeStats(samples);
+  }
+
   const mutationNote =
     contract.mutating_tools === undefined
       ? "⚠ no_unauthorized_mutation 未声明 mutating_tools，默认放行"
@@ -465,6 +506,10 @@ export function gradeCommand(opts: GradeOptions): string {
     );
   }
 
+  if (stability !== undefined) {
+    lines.push("", ...renderStability(stability));
+  }
+
   if (antiCheat) {
     lines.push("", ...renderAntiCheat(antiCheat));
   }
@@ -503,7 +548,10 @@ export function gradeCommand(opts: GradeOptions): string {
   }
 
   if (storeDir) {
-    const saved = recordScore(storeDir, contract, result, { ladder: opts.ladder });
+    const saved = recordScore(storeDir, contract, result, {
+      ladder: opts.ladder,
+      stats: stability,
+    });
     lines.push(`已保存评分 ${saved.id}（project=${saved.projectId}）到 ${storeDir}`);
   }
   return lines.join("\n");

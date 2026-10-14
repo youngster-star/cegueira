@@ -23,6 +23,7 @@ import {
   parseLadderUsage,
   readOutcomeMin,
   renderAntiCheat,
+  renderStability,
   toEvalCases,
 } from "./commands/grade.js";
 import { historyCommand, recordScore } from "./commands/history.js";
@@ -845,6 +846,59 @@ test("grade：未提供 --l3/--l4 时评分记录不含 ladder 键（旧版形�
       unknown
     >[];
     assert.equal("ladder" in scores[0], false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("renderStability：标准差 > 3 时警示 §4.9", () => {
+  const stable = renderStability({
+    mean: 80,
+    std: 1.2,
+    worst: 78,
+    ci: [78, 82],
+    samples: 3,
+  }).join("\n");
+  assert.ok(stable.includes("3 次采样"));
+  assert.ok(!stable.includes("标准差 > 3"));
+
+  const noisy = renderStability({
+    mean: 80,
+    std: 5,
+    worst: 70,
+    ci: [60, 100],
+    samples: 3,
+  }).join("\n");
+  assert.ok(noisy.includes("标准差 > 3"));
+});
+
+test("grade --runs：产出稳定性分布（独立信号，PRD §4.7）", () => {
+  const dir = makeTmpDir();
+  try {
+    mkdirSync(join(dir, "a"), { recursive: true });
+    mkdirSync(join(dir, "b"), { recursive: true });
+    const a = writeGradeFixture(join(dir, "a"), GRADE_CONTRACT, healthyTrace());
+    // 第二次录制：无检索、无引用 → outcome 更低，与主分构成分布
+    const traceB: AgentTrace = {
+      http: [],
+      tools: [{ id: "t1", name: "retrieve", args: { q: "rag" }, result: ["d1"], ok: true, latencyMs: 20 }],
+      llmSpans: [],
+      retrievals: [],
+    };
+    const b = writeGradeFixture(join(dir, "b"), GRADE_CONTRACT, traceB);
+    const report = gradeCommand({ contractPath: a.contractPath, runDir: a.runDir, runs: [b.runDir] });
+    assert.ok(report.includes("稳定性"));
+    assert.ok(report.includes("2 次采样"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("grade：未提供 --runs → 无稳定性段落", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
+    assert.ok(!gradeCommand({ contractPath, runDir }).includes("稳定性"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
