@@ -5,10 +5,13 @@
 //! 前端 TS 层（直接复用 packages/*），本文件仅负责：单实例、托盘、窗口
 //! 生命周期、开机自启、密钥安全存储（API Key）。
 
+use std::process::{Child, Command, Stdio};
+use std::sync::Mutex;
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, WindowEvent,
+    Manager, RunEvent, WindowEvent,
 };
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -33,6 +36,42 @@ fn delete_secret(service: String, account: String) -> Result<(), String> {
     entry.delete_credential().map_err(|e| e.to_string())
 }
 
+/// 本地 sidecar 子进程句柄（应用退出时结束它）。
+struct Sidecar(Mutex<Option<Child>>);
+
+/// 定位仓库根：优先环境变量 `CEG_REPO_ROOT`；否则由 exe 位置向上探测
+/// （target/release → target → src-tauri → desktop → apps → 仓库根）。
+fn repo_root() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("CEG_REPO_ROOT") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.exists() {
+            return Some(pb);
+        }
+    }
+    let exe = std::env::current_exe().ok()?;
+    let mut d = exe.parent()?.to_path_buf(); // …/target/release
+    for _ in 0..5 {
+        d = d.parent()?.to_path_buf();
+    }
+    Some(d)
+}
+
+/// 拉起 Node sidecar（真实引擎，监听 127.0.0.1:8787）。失败返回 None（不阻塞 GUI）。
+fn start_sidecar() -> Option<Child> {
+    let repo = repo_root()?;
+    let script = repo.join("apps").join("sidecar").join("server.mjs");
+    if !script.exists() {
+        return None;
+    }
+    Command::new("node")
+        .arg(script)
+        .current_dir(&repo)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -53,6 +92,8 @@ pub fn run() {
         ))
         // 系统通知（评分完成等场景提醒用户）
         .plugin(tauri_plugin_notification::init())
+        // 本地 sidecar（真实引擎）子进程句柄
+        .manage(Sidecar(Mutex::new(None)))
         // 密钥安全存储命令桥（API Key 不落盘明文）
         .invoke_handler(tauri::generate_handler![
             set_secret,
@@ -61,6 +102,10 @@ pub fn run() {
         ])
         // 托盘 + 关闭到托盘
         .setup(|app| {
+            // 启动本地 sidecar（真实引擎）。失败也不阻塞窗口，前端会在调用时提示。
+            let child = start_sidecar();
+            *app.state::<Sidecar>().0.lock().unwrap() = child;
+
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
@@ -100,5 +145,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|_app_handle, _event| {});
+    app.run(|app_handle, event| {
+        // 应用退出时结束 sidecar，避免残留监听 8787。
+        if let RunEvent::Exit = event {
+            if let Some(mut child) = app_handle.state::<Sidecar>().0.lock().unwrap().take() {
+                let _ = child.kill();
+            }
+        }
+    });
 }
