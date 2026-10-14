@@ -2,8 +2,8 @@
  * ceg submit：提交评分（PRD §4 / P1 任务 6）。
  * 读取评分输入 JSON，跑评分引擎，输出报告。
  */
-import { readFileSync } from "node:fs";
 import { buildReport, score, type SecurityChecks, type ScoreInput } from "@cegueira/scorer";
+import { readText } from "../read.js";
 
 /** 评分输入 JSON 结构（含可选多次采样分，用于报告统计）。 */
 interface SubmitInput {
@@ -18,7 +18,7 @@ interface SubmitInput {
 
 /** 提交评分：读输入文件 → 评分 → 返回报告文本。 */
 export function submitCommand(inputPath: string): string {
-  const raw = readFileSync(inputPath, "utf8");
+  const raw = readText(inputPath);
   const data = JSON.parse(raw) as SubmitInput;
 
   const scoreInput: ScoreInput = {

@@ -19,7 +19,7 @@
  * 不这样做的话，要么命令无法运行，要么静默把两条未做的检查当成「通过」——
  * 后者会让用户以为拿到了完整判定，是更坏的选项。
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   detectCheat,
@@ -47,6 +47,7 @@ import type { LadderUsage } from "@cegueira/persistence/types";
 import type { AgentTrace, EfficiencyMetrics } from "@cegueira/trace";
 import { parseRecording } from "@cegueira/trace/load";
 import { parse as parseYaml } from "yaml";
+import { readJson, readText } from "../read.js";
 import { recordScore } from "./history.js";
 import { scanPath } from "./scan.js";
 
@@ -54,16 +55,14 @@ import { scanPath } from "./scan.js";
 export function loadTrace(runDir: string): AgentTrace {
   const manifestPath = join(runDir, "manifest.json");
   if (existsSync(manifestPath)) {
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-      trace?: unknown;
-    };
+    const manifest = readJson<{ trace?: unknown }>(manifestPath);
     if (manifest.trace === undefined || typeof manifest.trace !== "object" || manifest.trace === null) {
       throw new Error(`${manifestPath} 的 trace 字段缺失或非对象`);
     }
     return manifest.trace as AgentTrace;
   }
 
-  const read = (name: string): string => readFileSync(join(runDir, name), "utf8");
+  const read = (name: string): string => readText(join(runDir, name));
   if (!existsSync(join(runDir, "http.yaml"))) {
     throw new Error(`${runDir} 既无 manifest.json 也非三件套录制目录`);
   }
@@ -72,7 +71,7 @@ export function loadTrace(runDir: string): AgentTrace {
     http: read("http.yaml"),
     trace: read("trace.json"),
     toolIo: read("tool_io.log"),
-    result: existsSync(resultPath) ? readFileSync(resultPath, "utf8") : undefined,
+    result: existsSync(resultPath) ? readText(resultPath) : undefined,
   });
 }
 
@@ -266,7 +265,7 @@ export function parseLadderUsage(opts: {
 
 /** 读取 rubric.yaml 的 gates.outcome_min（接受 JSON 或 YAML），校验在 (0,1]。 */
 export function readOutcomeMin(path: string): number {
-  const text = readFileSync(path, "utf8");
+  const text = readText(path);
   let raw: unknown;
   try {
     raw = JSON.parse(text);
@@ -282,7 +281,7 @@ export function readOutcomeMin(path: string): number {
 
 /** 读取 S_rubric 采样：接受 `{scores:[...]}` 或裸数组。 */
 export function loadRubricSamples(path: string): number[] {
-  const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  const raw = readJson<unknown>(path);
   const arr = Array.isArray(raw)
     ? raw
     : raw && typeof raw === "object" && Array.isArray((raw as { scores?: unknown }).scores)
@@ -302,7 +301,7 @@ export function loadRubricSamples(path: string): number[] {
 /** 评分报告文本。 */
 export function gradeCommand(opts: GradeOptions): string {
   const { contractPath, securityJson, storeDir, systemPrompt } = opts;
-  const contract = JSON.parse(readFileSync(contractPath, "utf8")) as Contract;
+  const contract = readJson<Contract>(contractPath);
   const check = validateContract(contract);
   if (!check.ok) {
     throw new Error(`契约校验未通过：${check.reason}`);
@@ -311,8 +310,13 @@ export function gradeCommand(opts: GradeOptions): string {
   // 解析参与评分的 case 轨迹：逐 case 录制（cases.json）或单次录制。
   const casesIndexPath = join(opts.runDir, "cases.json");
   const casesIndex: CasesIndex | undefined = existsSync(casesIndexPath)
-    ? (JSON.parse(readFileSync(casesIndexPath, "utf8")) as CasesIndex)
+    ? readJson<CasesIndex>(casesIndexPath)
     : undefined;
+  if (opts.caseId !== undefined && casesIndex === undefined) {
+    throw new Error(
+      `--case 仅适用于逐 case 录制（需 ${casesIndexPath}）；${opts.runDir} 是单次录制`,
+    );
+  }
 
   const caseEntries: { id: string; trace: AgentTrace }[] = [];
   if (casesIndex) {
@@ -360,7 +364,7 @@ export function gradeCommand(opts: GradeOptions): string {
   // 四道防作弊：需 evalset；runCaseIds 优先级 = 显式 > cases.json（观测事实）> 视为全覆盖。
   let antiCheat: AntiCheatReport | undefined;
   if (opts.evalsetPath !== undefined) {
-    const evalset = JSON.parse(readFileSync(opts.evalsetPath, "utf8")) as EvalSet;
+    const evalset = readJson<EvalSet>(opts.evalsetPath);
     const evalCases = toEvalCases(evalset);
     const runCaseIds =
       opts.ranCases ?? casesIndex?.ran_case_ids ?? evalCases.map((c) => c.id);

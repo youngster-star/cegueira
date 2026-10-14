@@ -335,7 +335,17 @@ def load_evalset(path: str | os.PathLike) -> list[dict]:
     只依赖 id 与 prompt 两个字段——它们是「逐 case 运行」与「改写/硬编码检测」
     的最小必需信息，其余（expected_outcome / 引用断言）由评分层消费。
     """
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise RecordError(f"evalset 文件不存在：{path}")
+    except OSError as e:
+        raise RecordError(f"evalset 读取失败（{path}）：{e}")
+    try:
+        # 容忍前导 UTF-8 BOM（Windows 记事本/PowerShell 常写入）。
+        payload = json.loads(text.lstrip("\ufeff"))
+    except json.JSONDecodeError as e:
+        raise RecordError(f"evalset 不是合法 JSON（{path}）：{e}")
     tests = payload.get("tests") if isinstance(payload, dict) else None
     if not isinstance(tests, list) or not tests:
         raise RecordError("evalset 需含非空 tests 数组")

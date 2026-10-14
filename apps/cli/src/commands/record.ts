@@ -142,8 +142,10 @@ export function recordCommand(opts: RecordOptions, spawn: SpawnFn = defaultSpawn
     throw new Error(`无法启动录制子进程（${python}）：${res.error.message}`);
   }
   if (res.status !== 0) {
+    // 录制器的退出码恒为 1，真正的原因在 stderr（含 Agent 自己的退出码/报错）。
+    // 以 stderr 为主，避免「退出码 1」误导用户以为是我们的问题。
     const err = (res.stderr ?? "").trim();
-    throw new Error(`录制失败（退出码 ${res.status}）：\n${err || "（无 stderr）"}`);
+    throw new Error(err ? `录制失败：\n${err}` : `录制失败（退出码 ${res.status}，且无 stderr）`);
   }
 
   const s = parseSummary(res.stdout ?? "");

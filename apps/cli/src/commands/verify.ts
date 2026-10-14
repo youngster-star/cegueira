@@ -15,8 +15,9 @@
  * - 提示（不影响 ok）：无 holdout 用例、checks 为空、evalset 为空——
  *   它们是质量建议，不是契约非法。
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { readText } from "../read.js";
 import {
   validateContract,
   validateRubric,
@@ -52,7 +53,7 @@ const FILES = {
 
 /** 读取并解析一个 JSON 文件；失败抛错（由调用方转成失败项）。 */
 function readJson<T>(path: string): T {
-  return JSON.parse(readFileSync(path, "utf8")) as T;
+  return JSON.parse(readText(path)) as T;
 }
 
 /** 校验契约五件套目录，返回逐项结果。 */
@@ -113,7 +114,7 @@ export function verifyBundle(dir: string): VerifyResult {
   // 3. rubric.yaml：安全三断言齐全 + outcome_min 合法
   let rubric: Rubric | undefined;
   try {
-    rubric = parseYaml(readFileSync(path(FILES.rubric), "utf8")) as Rubric;
+    rubric = parseYaml(readText(path(FILES.rubric))) as Rubric;
     const r = validateRubric(rubric);
     items.push({ name: "rubric 校验", ok: r.ok, detail: r.ok ? "安全断言齐全，outcome_min 合法" : r.reason });
   } catch (e) {

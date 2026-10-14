@@ -264,6 +264,23 @@ def test_load_evalset_validation():
     except RecordError:
         pass
 
+    # 文件缺失 → RecordError（而非原始 traceback）；非法 JSON 与 BOM 也各归其位。
+    try:
+        load_evalset(tmp / "nope.json")
+        assert False, "文件缺失应报 RecordError"
+    except RecordError as e:
+        assert "不存在" in str(e)
+
+    p.write_text("{not json}", encoding="utf-8")
+    try:
+        load_evalset(p)
+        assert False, "非法 JSON 应报 RecordError"
+    except RecordError:
+        pass
+
+    p.write_text("\ufeff" + json.dumps({"tests": [{"id": "c1", "prompt": "问答"}]}), encoding="utf-8")
+    assert load_evalset(p) == [{"id": "c1", "prompt": "问答"}], "应容忍前导 BOM"
+
 
 def test_record_cases_runs_each_and_writes_index():
     import tempfile

@@ -754,6 +754,19 @@ test("historyCommand：无记录时给出明确提示", () => {
   }
 });
 
+test("grade：单次录制下给 --case → 明确报错（不静默忽略）", () => {
+  const dir = makeTmpDir();
+  try {
+    const { contractPath, runDir } = writeGradeFixture(dir, GRADE_CONTRACT, healthyTrace());
+    assert.throws(
+      () => gradeCommand({ contractPath, runDir, caseId: "c1" }),
+      /仅适用于逐 case 录制/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("grade --store：报告中提示已落库，history 可查", () => {
   const dir = makeTmpDir();
   try {
@@ -918,6 +931,13 @@ function writeScanTree(dir: string): string {
   return src;
 }
 
+test("collectPythonFiles：路径不存在 → 可读错误（非 ENOENT）", () => {
+  assert.throws(
+    () => collectPythonFiles(join(makeTmpDir(), "nope")),
+    /扫描路径不存在/,
+  );
+});
+
 test("collectPythonFiles：只收 .py，跳过 node_modules，结果排序", () => {
   const dir = makeTmpDir();
   try {
@@ -1038,7 +1058,7 @@ test("recordCommand：子进程非零退出时抛错并带上 stderr", () => {
   const fake = (): SpawnResult => ({ status: 1, stdout: "", stderr: "boom: agent 挂了" });
   assert.throws(
     () => recordCommand({ agentDir: "/a", runDir: "/o", python: "/py", repoRoot: "/repo" }, fake),
-    /录制失败（退出码 1）.*agent 挂了/s,
+    /录制失败：[\s\S]*agent 挂了/,
   );
 });
 

@@ -4,6 +4,8 @@ import {
   detectProxy,
   doctorCommand,
   maskProxy,
+  parsePythonVersion,
+  pythonVersionOk,
 } from "./commands/doctor.js";
 
 test("detectProxy：无代理环境变量", () => {
@@ -54,4 +56,16 @@ test("doctorCommand：无代理时输出提示性说明", () => {
 test("doctorCommand：始终包含 node 检查", () => {
   const out = doctorCommand("/tmp", {});
   assert.ok(out.includes("node"));
+});
+
+test("parsePythonVersion / pythonVersionOk：解析与 ≥3.11 判定", () => {
+  assert.deepEqual(parsePythonVersion("Python 3.13.14"), [3, 13]);
+  assert.deepEqual(parsePythonVersion("Python 3.10.1"), [3, 10]);
+  assert.equal(parsePythonVersion(null), null);
+  assert.equal(pythonVersionOk([3, 11]), true);
+  assert.equal(pythonVersionOk([3, 13]), true);
+  assert.equal(pythonVersionOk([4, 0]), true);
+  assert.equal(pythonVersionOk([3, 10]), false);
+  assert.equal(pythonVersionOk([2, 7]), false);
+  assert.equal(pythonVersionOk(null), false);
 });

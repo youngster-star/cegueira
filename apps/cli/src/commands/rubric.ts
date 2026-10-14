@@ -18,7 +18,7 @@
  * 单测不能真连 LLM。`rubricCommand` 接受一个 provider 工厂，测试注入假 provider
  * 即可验证「预览拦截 → 确认 → 评审 → 报告」全链路，不触网。
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { createBudget } from "@cegueira/budget";
 import {
   createAnthropicProvider,
@@ -30,6 +30,7 @@ import {
 import { processPrivacy, type OutboundPurpose } from "@cegueira/privacy";
 import { evaluateRubricCrossFamily, type RubricPrompt } from "@cegueira/scorer";
 import { parse as parseYaml } from "yaml";
+import { readText } from "../read.js";
 
 export interface RubricOptions {
   rubricPath: string;
@@ -117,8 +118,8 @@ export async function rubricCommand(
   opts: RubricOptions,
   factory: ProviderFactory = defaultProviderFactory,
 ): Promise<string> {
-  const items = parseRubricFile(readFileSync(opts.rubricPath, "utf8"));
-  const artifact = readFileSync(opts.artifactPath, "utf8");
+  const items = parseRubricFile(readText(opts.rubricPath));
+  const artifact = readText(opts.artifactPath);
   const purpose: OutboundPurpose = opts.purpose ?? "review";
   const privacy = processPrivacy(artifact, purpose);
 

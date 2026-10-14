@@ -21,6 +21,18 @@ function runVersion(cmd: string): string | null {
   }
 }
 
+/** 从 `python --version` 输出解析主次版本号（如 "Python 3.13.14" → [3,13]）。 */
+export function parsePythonVersion(out: string | null): [number, number] | null {
+  if (out === null) return null;
+  const m = out.match(/(\d+)\.(\d+)/);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+
+/** 版本是否满足 Python ≥3.11（录制器与运行时要求）。 */
+export function pythonVersionOk(v: [number, number] | null): boolean {
+  return v !== null && (v[0] > 3 || (v[0] === 3 && v[1] >= 11));
+}
+
 /** 脱敏代理地址（隐藏 `user:pass@` 部分）。 */
 export function maskProxy(url: string): string {
   const at = url.indexOf("@");
@@ -71,11 +83,24 @@ export function doctorCommand(
 
   items.push({ name: "node", ok: true, detail: process.version });
 
-  const py = runVersion("python --version") ?? runVersion("python3 --version");
+  // 与 record 的 findPython 一致：优先用仓库 .venv（录制实际所用），否则退回 PATH。
+  const venvPy =
+    process.platform === "win32"
+      ? join(cwd, ".venv", "Scripts", "python.exe")
+      : join(cwd, ".venv", "bin", "python");
+  const useVenv = existsSync(venvPy);
+  const py = useVenv
+    ? runVersion(`"${venvPy}" --version`)
+    : runVersion("python --version") ?? runVersion("python3 --version");
+  const pyVer = parsePythonVersion(py);
+  const pyOk = pythonVersionOk(pyVer);
   items.push({
     name: "python",
-    ok: py !== null,
-    detail: py ?? "未找到 python",
+    ok: pyOk,
+    detail:
+      py === null
+        ? `未找到 python（来源：${useVenv ? "仓库 .venv" : "PATH"}；需 ≥3.11）`
+        : `${py}（来源：${useVenv ? "仓库 .venv" : "PATH"}${pyOk ? "" : "，需 ≥3.11"}）`,
   });
 
   const rust = runVersion("rustc --version");

@@ -20,13 +20,13 @@
  * ```
  * `repeated` 与 `repeatScores` 可选；`samples` 必填且非空。
  */
-import { readFileSync } from "node:fs";
 import {
   buildCalibrationReport,
   type CalibrationSample,
   type CalibrationReport,
   type RepeatedSample,
 } from "@cegueira/calibration";
+import { readText } from "../read.js";
 
 export interface CalibrateOptions {
   labelsPath: string;
@@ -113,7 +113,7 @@ export function renderCalibrationReport(report: CalibrationReport): string {
 
 /** 执行校准，返回报告文本。 */
 export function calibrateCommand(opts: CalibrateOptions): string {
-  const input = parseCalibrationFile(readFileSync(opts.labelsPath, "utf8"));
+  const input = parseCalibrationFile(readText(opts.labelsPath));
   const report = buildCalibrationReport(input.samples, input.repeated, input.repeatScores);
   return renderCalibrationReport(report);
 }

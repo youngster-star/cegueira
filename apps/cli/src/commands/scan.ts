@@ -15,7 +15,7 @@
  * 用户 Agent 目标语言仅 Python（PRD §10），扫描范围随之收窄；同时跳过
  * `node_modules` / `.venv` / `.git` 等明显无关的大目录，避免把依赖树当用户代码。
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { scan, type Finding } from "@cegueira/static-analysis";
 
@@ -28,6 +28,10 @@ const SKIP_DIRS = new Set(["node_modules", ".venv", ".git", "__pycache__", "dist
 
 /** 递归收集目录下的 .py 文件；传入文件则直接返回。 */
 export function collectPythonFiles(path: string): string[] {
+  // 先给出可读错误，而不是把 statSync 的 ENOENT 直接抛给用户。
+  if (!existsSync(path)) {
+    throw new Error(`扫描路径不存在：${path}`);
+  }
   const st = statSync(path);
   if (st.isFile()) return path.endsWith(".py") ? [path] : [];
 

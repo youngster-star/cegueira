@@ -17,7 +17,6 @@
  * 项目归入「RAG」）。待契约引入 skill taxonomy 后，改用契约字段即可，无需
  * 改动画像算法本身。
  */
-import { readFileSync } from "node:fs";
 import {
   aggregateSkill,
   evaluateCertification,
@@ -29,6 +28,7 @@ import {
   type ProjectEvidence,
 } from "@cegueira/profile";
 import { createJsonFilePersistence } from "@cegueira/persistence/persistence";
+import { readText } from "../read.js";
 import type { ProfileRecord, SkillProfile } from "@cegueira/persistence/types";
 
 export interface ProfileOptions {
@@ -156,7 +156,7 @@ export function profileCommand(opts: ProfileOptions): string {
   // 顶级档双轨制（PRD §5.5）：分数达标只是必要条件，还须认证证据。
   const certification =
     opts.evidencePath !== undefined
-      ? evaluateCertification(topLevel, parseEvidence(readFileSync(opts.evidencePath, "utf8")))
+      ? evaluateCertification(topLevel, parseEvidence(readText(opts.evidencePath)))
       : undefined;
 
   const record: ProfileRecord = {

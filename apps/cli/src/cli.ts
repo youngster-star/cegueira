@@ -1,8 +1,8 @@
 /**
  * ceg CLI 命令分发。
  */
-import { readFileSync } from "node:fs";
 import { parseArgs } from "./args.js";
+import { readText } from "./read.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { gradeCommand, parseLadderUsage } from "./commands/grade.js";
 import { historyCommand } from "./commands/history.js";
@@ -85,7 +85,7 @@ export async function run(argv: string[]): Promise<void> {
       if (!contract) throw new Error("grade 需要 --contract <contract.json>");
       if (!run) throw new Error("grade 需要 --run <录制目录>");
       const systemPromptPath = options["system-prompt"];
-      const systemPrompt = systemPromptPath ? readFileSync(systemPromptPath, "utf8") : undefined;
+      const systemPrompt = systemPromptPath ? readText(systemPromptPath) : undefined;
       const ranCases = options["ran-cases"]
         ? options["ran-cases"].split(",").map((s) => s.trim()).filter(Boolean)
         : undefined;
